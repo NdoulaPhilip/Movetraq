@@ -1,0 +1,11 @@
+{
+  "name": "MoveTraq",
+  "short_name": "MoveTraq",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#CBF24A",
+  "description": "MoveTraq delivery application",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false
+}

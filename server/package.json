@@ -1,0 +1,16 @@
+{
+  "name": "movetraq-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.19.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

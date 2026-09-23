@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "157089721933",
+    "project_id": "movetraq-1706f",
+    "storage_bucket": "movetraq-1706f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:157089721933:android:1c0d9b5ef75629593eb604",
+        "android_client_info": {
+          "package_name": "com.example.movetraq"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCnTvNzU4TwvXR0quVgET96kgGo9WIOKZM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

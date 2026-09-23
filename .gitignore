@@ -1,0 +1,20 @@
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+*.iml
+.idea/
+*.g.dart
+*.freezed.dart
+*.log
+server/.data/
+server/.env
+server/node_modules/
+.env
+
+# Uncomment if you don't want to commit generated platform projects:
+# android/
+# ios/
