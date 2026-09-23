@@ -23,6 +23,58 @@ class LocalDataService {
 
   final NodeApiClient? _api;
 
+  static const List<AddressSuggestion> _fallbackAddresses = [
+    AddressSuggestion(
+      id: 'local-ikeja-city-mall',
+      name: 'Ikeja City Mall',
+      address: 'Obafemi Awolowo Way, Ikeja, Lagos',
+      latitude: 6.6143,
+      longitude: 3.3571,
+    ),
+    AddressSuggestion(
+      id: 'local-computer-village',
+      name: 'Computer Village',
+      address: 'Otigba Street, Ikeja, Lagos',
+      latitude: 6.5965,
+      longitude: 3.3421,
+    ),
+    AddressSuggestion(
+      id: 'local-unilag',
+      name: 'University of Lagos',
+      address: 'Akoka, Yaba, Lagos',
+      latitude: 6.5158,
+      longitude: 3.3899,
+    ),
+    AddressSuggestion(
+      id: 'local-yaba',
+      name: 'Yaba Bus Park',
+      address: 'Yaba, Lagos',
+      latitude: 6.5095,
+      longitude: 3.3711,
+    ),
+    AddressSuggestion(
+      id: 'local-lekki-phase-1',
+      name: 'Lekki Phase 1',
+      address: 'Admiralty Way, Lekki, Lagos',
+      latitude: 6.4474,
+      longitude: 3.4723,
+    ),
+    AddressSuggestion(
+      id: 'local-victoria-island',
+      name: 'Victoria Island',
+      address: 'Ahmadu Bello Way, Lagos',
+      latitude: 6.4281,
+      longitude: 3.4219,
+    ),
+    AddressSuggestion(
+      id: 'local-ajah-market',
+      name: 'Ajah Market',
+      address: 'Lekki-Epe Expressway, Ajah, Lagos',
+      latitude: 6.4698,
+      longitude: 3.5852,
+    ),
+  ];
+
   // ---------------------------------------------------------------------------
   // Users
   // ---------------------------------------------------------------------------
@@ -435,6 +487,31 @@ class LocalDataService {
     await _api?.signOut();
     currentUser = null;
     _authController.add(null);
+  }
+
+  Future<List<AddressSuggestion>> searchAddresses(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return [];
+
+    final api = _api;
+    if (api != null && api.isAuthenticated) {
+      try {
+        final suggestions = await api.addressSuggestions(trimmed);
+        if (suggestions.isNotEmpty) return suggestions;
+      } catch (_) {
+        // Keep address entry usable while the hosted API/geocoder is waking up.
+      }
+    }
+
+    final needle = trimmed.toLowerCase();
+    return _fallbackAddresses
+        .where(
+          (item) =>
+              item.name.toLowerCase().contains(needle) ||
+              item.address.toLowerCase().contains(needle),
+        )
+        .take(6)
+        .toList();
   }
 
   // ===========================================================================

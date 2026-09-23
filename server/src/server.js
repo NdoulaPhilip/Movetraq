@@ -380,6 +380,85 @@ function readLocation(body) {
   };
 }
 
+const fallbackPlaces = [
+  ['Ikeja City Mall', 'Obafemi Awolowo Way, Ikeja, Lagos', 6.6143, 3.3571],
+  ['Computer Village', 'Otigba Street, Ikeja, Lagos', 6.5965, 3.3421],
+  ['Murtala Muhammed Airport', 'Airport Road, Ikeja, Lagos', 6.5774, 3.3212],
+  ['University of Lagos', 'Akoka, Yaba, Lagos', 6.5158, 3.3899],
+  ['Yaba Bus Park', 'Yaba, Lagos', 6.5095, 3.3711],
+  ['Lekki Phase 1', 'Admiralty Way, Lekki, Lagos', 6.4474, 3.4723],
+  ['The Palms Shopping Mall', 'BIS Way, Lekki, Lagos', 6.4351, 3.4562],
+  ['Victoria Island', 'Ahmadu Bello Way, Lagos', 6.4281, 3.4219],
+  ['Eko Hotel and Suites', 'Adetokunbo Ademola Street, Victoria Island, Lagos', 6.4265, 3.4303],
+  ['Ajah Market', 'Lekki-Epe Expressway, Ajah, Lagos', 6.4698, 3.5852],
+  ['Maryland Mall', 'Ikorodu Road, Maryland, Lagos', 6.5721, 3.3673],
+  ['Surulere Stadium', 'National Stadium, Surulere, Lagos', 6.4973, 3.3644],
+];
+
+function localPlaceSuggestions(query, limit = 6) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (needle.length < 2) return [];
+  return fallbackPlaces
+    .filter(([name, address]) => `${name} ${address}`.toLowerCase().includes(needle))
+    .slice(0, limit)
+    .map(([name, address, latitude, longitude]) => ({
+      id: `local-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      name,
+      address,
+      latitude,
+      longitude,
+      source: 'local',
+    }));
+}
+
+async function placeSuggestions(query) {
+  const local = localPlaceSuggestions(query);
+  if (String(query || '').trim().length < 3) return local;
+
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('limit', '6');
+  url.searchParams.set('countrycodes', 'ng');
+  url.searchParams.set('q', query);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'user-agent': 'MoveTraq/1.0 (address autocomplete)',
+        accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!response.ok) return local;
+
+    const items = await response.json();
+    const remote = items.map((item) => {
+      const address = item.address || {};
+      const name =
+        item.name ||
+        address.road ||
+        address.suburb ||
+        address.city ||
+        address.state ||
+        item.display_name;
+      return {
+        id: `osm-${item.place_id}`,
+        name,
+        address: item.display_name,
+        latitude: Number(item.lat),
+        longitude: Number(item.lon),
+        source: 'osm',
+      };
+    });
+    return [...remote, ...local]
+      .filter((item, index, all) => all.findIndex((other) => other.address === item.address) === index)
+      .slice(0, 6);
+  } catch {
+    return local;
+  }
+}
+
 function requireOrderAccess(user, order) {
   if (order.targetDelivererId) {
     return (
@@ -548,6 +627,12 @@ const server = http.createServer(async (req, res) => {
           (item) => item.activeRole === 'deliverer' && item.delivererOnline,
         ),
       });
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/places/autocomplete') {
+      const query = String(url.searchParams.get('q') || '').trim();
+      json(res, 200, { suggestions: await placeSuggestions(query) });
       return;
     }
 

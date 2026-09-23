@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,8 @@ import 'package:provider/provider.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/send_flow_provider.dart';
+import '../../services/local_data_service.dart';
+import '../../services/node_api_client.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mini_map.dart';
 
@@ -638,6 +641,10 @@ class _AddressField extends StatefulWidget {
 
 class _AddressFieldState extends State<_AddressField> {
   late final TextEditingController _controller;
+  Timer? _debounce;
+  List<AddressSuggestion> _suggestions = const [];
+  bool _loading = false;
+  int _requestId = 0;
 
   @override
   void initState() {
@@ -658,8 +665,50 @@ class _AddressFieldState extends State<_AddressField> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _handleChanged(String value) {
+    widget.onChanged(value);
+    _debounce?.cancel();
+    final query = value.trim();
+    if (query.length < 2) {
+      setState(() {
+        _suggestions = const [];
+        _loading = false;
+      });
+      return;
+    }
+
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      _loadSuggestions(query);
+    });
+  }
+
+  Future<void> _loadSuggestions(String query) async {
+    final currentRequest = ++_requestId;
+    setState(() => _loading = true);
+    final suggestions = await context.read<LocalDataService>().searchAddresses(query);
+    if (!mounted || currentRequest != _requestId) return;
+    setState(() {
+      _suggestions = suggestions;
+      _loading = false;
+    });
+  }
+
+  void _selectSuggestion(AddressSuggestion suggestion) {
+    final value = suggestion.address.isEmpty ? suggestion.name : suggestion.address;
+    _debounce?.cancel();
+    _controller.text = value;
+    _controller.selection = TextSelection.collapsed(offset: value.length);
+    widget.onChanged(value);
+    setState(() {
+      _suggestions = const [];
+      _loading = false;
+    });
+    FocusScope.of(context).unfocus();
   }
 
   @override
@@ -700,8 +749,85 @@ class _AddressFieldState extends State<_AddressField> {
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
           ),
-          onChanged: widget.onChanged,
+          onChanged: _handleChanged,
         ),
+        if (_loading || _suggestions.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 190),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.borderSoft),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: _loading && _suggestions.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Searching addresses...',
+                          style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: _suggestions.length,
+                    separatorBuilder: (_, __) => const Divider(
+                      height: 1,
+                      color: AppColors.borderSoft,
+                    ),
+                    itemBuilder: (context, index) {
+                      final suggestion = _suggestions[index];
+                      return ListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        leading: const Icon(
+                          Icons.place_outlined,
+                          color: AppColors.accent,
+                          size: 18,
+                        ),
+                        title: Text(
+                          suggestion.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        subtitle: Text(
+                          suggestion.address,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                        onTap: () => _selectSuggestion(suggestion),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ],
     );
   }

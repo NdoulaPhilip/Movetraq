@@ -15,6 +15,32 @@ class NodeApiException implements Exception {
   String toString() => message;
 }
 
+class AddressSuggestion {
+  const AddressSuggestion({
+    required this.id,
+    required this.name,
+    required this.address,
+    this.latitude,
+    this.longitude,
+  });
+
+  final String id;
+  final String name;
+  final String address;
+  final double? latitude;
+  final double? longitude;
+
+  factory AddressSuggestion.fromJson(Map<String, dynamic> json) {
+    return AddressSuggestion(
+      id: json['id'] as String? ?? json['address'] as String? ?? '',
+      name: json['name'] as String? ?? json['address'] as String? ?? '',
+      address: json['address'] as String? ?? json['name'] as String? ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+    );
+  }
+}
+
 class NodeApiClient {
   NodeApiClient({
     http.Client? client,
@@ -106,6 +132,15 @@ class NodeApiClient {
     return (data['deliverers'] as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(AppUser.fromJson)
+        .toList();
+  }
+
+  Future<List<AddressSuggestion>> addressSuggestions(String query) async {
+    final encoded = Uri.encodeQueryComponent(query);
+    final data = await _get('/places/autocomplete?q=$encoded');
+    return (data['suggestions'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(AddressSuggestion.fromJson)
         .toList();
   }
 
