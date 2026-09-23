@@ -1,0 +1,15 @@
+name: Keep MoveTraq API Awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API and database
+        run: |
+          curl --fail --show-error --silent --max-time 60 \
+            https://movetraq-api.onrender.com/health/db

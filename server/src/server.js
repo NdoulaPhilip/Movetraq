@@ -386,6 +386,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && path === '/health/db') {
+      if (usePostgres) {
+        await pgPool.query('SELECT 1');
+      }
+      json(res, 200, {
+        ok: true,
+        database: usePostgres ? 'postgres' : 'memory',
+      });
+      return;
+    }
+
     const body = ['POST', 'PATCH'].includes(req.method) ? await readBody(req) : {};
 
     if (req.method === 'POST' && path === '/auth/signup') {
