@@ -57,7 +57,13 @@ Set `DATABASE_URL` to your Render PostgreSQL, Supabase, Neon, or other hosted Po
 
 ## Flutter
 
-Run against the hosted API:
+The Flutter app uses the hosted Render API by default:
+
+```bash
+https://movetraq-api.onrender.com
+```
+
+Run explicitly against Render:
 
 ```bash
 flutter run --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
@@ -67,6 +73,12 @@ Build APK:
 
 ```bash
 flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
+```
+
+Local in-memory fallback is disabled for normal builds. Only enable it for isolated development:
+
+```bash
+flutter run --dart-define=MOVETRAQ_ALLOW_LOCAL_FALLBACK=true
 ```
 
 ## Current Backend Flows

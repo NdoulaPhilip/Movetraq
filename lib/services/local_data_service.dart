@@ -6,22 +6,22 @@ import '../models/misc_models.dart';
 import '../models/parcel_order.dart';
 import 'node_api_client.dart';
 
-/// Everything the app needs to run locally — auth, orders, chat, wallet,
-/// notifications, and deliverer discovery.
+/// App data gateway.
 ///
-/// This is a frontend-only implementation.
-/// All data is stored in memory and will be reset when the app restarts.
-///
-/// Later, this class can be replaced with a real backend implementation
-/// without requiring major changes to the UI, provided the same public
-/// methods and streams are maintained.
+/// Normal builds always use the hosted Node API. The in-memory fallback is
+/// available only for isolated development with
+/// `--dart-define=MOVETRAQ_ALLOW_LOCAL_FALLBACK=true`.
 class LocalDataService {
   LocalDataService({
     NodeApiClient? api,
     bool useRemote = true,
-  }) : _api = useRemote ? api ?? NodeApiClient() : null;
+  }) : _api = useRemote || !_allowLocalFallback ? api ?? NodeApiClient() : null;
 
   final NodeApiClient? _api;
+  static const bool _allowLocalFallback = bool.fromEnvironment(
+    'MOVETRAQ_ALLOW_LOCAL_FALLBACK',
+    defaultValue: false,
+  );
 
   static const List<AddressSuggestion> _fallbackAddresses = [
     AddressSuggestion(
