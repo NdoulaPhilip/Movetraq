@@ -2,6 +2,8 @@
 
 MoveTraq is a Flutter delivery app with sender and deliverer flows backed by a Node.js API and PostgreSQL.
 
+This repository keeps the Android app source and Render backend source. Desktop, iOS, web, generated build output, and local tool caches are not required for the current Android release workflow.
+
 ## Backend
 
 The backend lives in `server/` and is deployed on Render.
