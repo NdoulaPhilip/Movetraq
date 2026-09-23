@@ -93,6 +93,14 @@ class NodeApiClient {
     return AppUser.fromJson(data['user'] as Map<String, dynamic>);
   }
 
+  Future<AppUser> updateCurrentLocation(double lat, double lng) async {
+    final data = await _patch('/users/me/location', {
+      'latitude': lat,
+      'longitude': lng,
+    });
+    return AppUser.fromJson(data['user'] as Map<String, dynamic>);
+  }
+
   Future<List<AppUser>> availableDeliverers() async {
     final data = await _get('/deliverers');
     return (data['deliverers'] as List<dynamic>)
@@ -218,6 +226,24 @@ class NodeApiClient {
     required WalletTransaction tx,
     required double balanceDelta,
   }) async {
+    if (tx.type == WalletTxType.topup) {
+      final data = await _post('/wallet/topup', {
+        'title': tx.title,
+        'sub': tx.sub,
+        'amount': tx.amount.abs(),
+      });
+      return AppUser.fromJson(data['user'] as Map<String, dynamic>);
+    }
+
+    if (tx.type == WalletTxType.withdrawal) {
+      final data = await _post('/wallet/withdraw', {
+        'title': tx.title,
+        'sub': tx.sub,
+        'amount': tx.amount.abs(),
+      });
+      return AppUser.fromJson(data['user'] as Map<String, dynamic>);
+    }
+
     final data = await _post('/wallet/transactions', {
       'type': tx.type.name,
       'title': tx.title,

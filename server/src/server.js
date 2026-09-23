@@ -362,6 +362,22 @@ function addNotification(userId, item) {
   return list;
 }
 
+function readLocation(body) {
+  const latitude = Number(body.latitude);
+  const longitude = Number(body.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return null;
+  }
+  return {
+    latitude,
+    longitude,
+    updatedAt: now(),
+  };
+}
+
 function requireOrderAccess(user, order) {
   return (
     order.senderId === user.uid ||
@@ -502,6 +518,18 @@ const server = http.createServer(async (req, res) => {
       }
       await saveStore();
       json(res, 200, { user });
+      return;
+    }
+
+    if (req.method === 'PATCH' && path === '/users/me/location') {
+      const location = readLocation(body);
+      if (!location) {
+        json(res, 400, { error: 'Valid latitude and longitude are required.' });
+        return;
+      }
+      user.currentLocation = location;
+      await saveStore();
+      json(res, 200, { user, location });
       return;
     }
 
@@ -795,6 +823,52 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/wallet/transactions') {
       json(res, 200, { transactions: walletTransactions.get(user.uid) || [] });
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/wallet') {
+      json(res, 200, {
+        user,
+        transactions: walletTransactions.get(user.uid) || [],
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && path === '/wallet/topup') {
+      const amount = Number(body.amount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        json(res, 400, { error: 'A positive top-up amount is required.' });
+        return;
+      }
+      const list = addWalletTransaction(
+        user.uid,
+        tx('topup', body.title || 'Wallet top-up', body.sub || 'Wallet funding', amount),
+        amount,
+      );
+      addNotification(user.uid, notification('Wallet topped up', `NGN ${amount.toFixed(0)} was added to your wallet.`, 'wallet'));
+      await saveStore();
+      json(res, 201, { user, transactions: list });
+      return;
+    }
+
+    if (req.method === 'POST' && path === '/wallet/withdraw') {
+      const amount = Number(body.amount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        json(res, 400, { error: 'A positive withdrawal amount is required.' });
+        return;
+      }
+      if (Number(user.walletBalance || 0) < amount) {
+        json(res, 400, { error: 'Insufficient wallet balance.' });
+        return;
+      }
+      const list = addWalletTransaction(
+        user.uid,
+        tx('withdrawal', body.title || 'Bank withdrawal', body.sub || 'Wallet withdrawal', -amount),
+        -amount,
+      );
+      addNotification(user.uid, notification('Withdrawal requested', `NGN ${amount.toFixed(0)} withdrawal was recorded.`, 'wallet'));
+      await saveStore();
+      json(res, 201, { user, transactions: list });
       return;
     }
 

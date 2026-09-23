@@ -768,6 +768,17 @@ class LocalDataService {
     );
   }
 
+  /// Updates the signed-in user's latest device location.
+  Future<void> updateCurrentUserLocation(
+    double lat,
+    double lng,
+  ) async {
+    final api = _api;
+    if (api != null && api.isAuthenticated) {
+      _storeUser(await api.updateCurrentLocation(lat, lng), makeCurrent: true);
+    }
+  }
+
   /// Negotiates a new order price.
   Future<void> negotiatePrice(
     String orderId,

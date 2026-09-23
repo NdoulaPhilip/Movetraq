@@ -63,6 +63,10 @@ class DelivererTrackingProvider extends ChangeNotifier {
     try {
       final position = await _locationService.getLastKnownOrCurrentPosition();
       _position = position;
+      await _data.updateCurrentUserLocation(
+        position.latitude,
+        position.longitude,
+      );
       await _data.updateCourierLocation(
         deliveryId,
         position.latitude,
@@ -81,6 +85,10 @@ class DelivererTrackingProvider extends ChangeNotifier {
         notifyListeners();
 
         try {
+          await _data.updateCurrentUserLocation(
+            position.latitude,
+            position.longitude,
+          );
           await _data.updateCourierLocation(
             deliveryId,
             position.latitude,
