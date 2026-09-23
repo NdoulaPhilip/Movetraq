@@ -22,7 +22,7 @@ class NodeApiClient {
   })  : _client = client ?? http.Client(),
         baseUrl = baseUrl ?? const String.fromEnvironment(
           'MOVETRAQ_API_URL',
-          defaultValue: 'http://10.0.2.2:3000',
+          defaultValue: 'https://movetraq-api.onrender.com',
         );
 
   final http.Client _client;
@@ -282,7 +282,7 @@ class NodeApiClient {
     } on http.ClientException catch (error) {
       throw NodeApiException(
         'Could not reach the MoveTraq API at $baseUrl. '
-        'Start the Node server and use http://10.0.2.2:3000 for the Android emulator. '
+        'Check your internet connection or confirm the hosted API is awake. '
         'Details: ${error.message}',
       );
     }
