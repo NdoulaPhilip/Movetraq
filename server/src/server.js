@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
-const { MongoClient } = require('mongodb');
+const { Pool } = require('pg');
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -27,9 +27,8 @@ loadEnvFile();
 
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || 'movetraq-local-secret';
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || '';
-const mongoDbName = process.env.MONGODB_DB || 'movetraq';
-const mongoStateId = 'movetraq-store';
+const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+const postgresStateId = 'movetraq-store';
 
 const users = new Map();
 const credentials = new Map();
@@ -37,9 +36,8 @@ const orders = new Map();
 const messages = new Map();
 const walletTransactions = new Map();
 const notifications = new Map();
-let mongoClient = null;
-let mongoDb = null;
-let useMongo = false;
+let pgPool = null;
+let usePostgres = false;
 
 function mapToObject(map) {
   return Object.fromEntries(map.entries());
@@ -63,22 +61,34 @@ function storeSnapshot() {
   };
 }
 
-async function connectMongo() {
-  if (!mongoUri) {
-    console.warn('MONGODB_URI is not set. Data will stay in memory and reset when the server restarts.');
+async function connectPostgres() {
+  if (!databaseUrl) {
+    console.warn('DATABASE_URL is not set. Data will stay in memory and reset when the server restarts.');
     return;
   }
-  mongoClient = new MongoClient(mongoUri);
-  await mongoClient.connect();
-  mongoDb = mongoClient.db(mongoDbName);
-  useMongo = true;
-  console.log(`MoveTraq API connected to MongoDB database "${mongoDbName}"`);
+
+  pgPool = new Pool({
+    connectionString: databaseUrl,
+    ssl: databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1')
+      ? false
+      : { rejectUnauthorized: false },
+  });
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  usePostgres = true;
+  console.log('MoveTraq API connected to PostgreSQL');
 }
 
 async function loadStore() {
-  if (!useMongo) return;
+  if (!usePostgres) return;
 
-  const store = await mongoDb.collection('appState').findOne({ _id: mongoStateId });
+  const result = await pgPool.query('SELECT data FROM app_state WHERE id = $1', [postgresStateId]);
+  const store = result.rows[0]?.data;
   if (!store) return;
   loadMap(users, store.users);
   loadMap(credentials, store.credentials);
@@ -89,18 +99,17 @@ async function loadStore() {
 }
 
 async function saveStore() {
-  if (!useMongo) return;
+  if (!usePostgres) return;
 
   const snapshot = storeSnapshot();
-  await mongoDb.collection('appState').updateOne(
-    { _id: mongoStateId },
-    {
-      $set: {
-        ...snapshot,
-        updatedAt: now(),
-      },
-    },
-    { upsert: true },
+  await pgPool.query(
+    `
+      INSERT INTO app_state (id, data, updated_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (id)
+      DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+    `,
+    [postgresStateId, snapshot],
   );
 }
 
@@ -545,7 +554,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function start() {
-  await connectMongo();
+  await connectPostgres();
   await loadStore();
   await saveStore();
 
