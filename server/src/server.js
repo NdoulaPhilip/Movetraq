@@ -28,7 +28,6 @@ loadEnvFile();
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || 'movetraq-local-secret';
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
-const postgresStateId = 'movetraq-store';
 
 const users = new Map();
 const credentials = new Map();
@@ -38,28 +37,6 @@ const walletTransactions = new Map();
 const notifications = new Map();
 let pgPool = null;
 let usePostgres = false;
-
-function mapToObject(map) {
-  return Object.fromEntries(map.entries());
-}
-
-function loadMap(map, value) {
-  if (!value || typeof value !== 'object') return;
-  for (const [key, item] of Object.entries(value)) {
-    map.set(key, item);
-  }
-}
-
-function storeSnapshot() {
-  return {
-    users: mapToObject(users),
-    credentials: mapToObject(credentials),
-    orders: mapToObject(orders),
-    messages: mapToObject(messages),
-    walletTransactions: mapToObject(walletTransactions),
-    notifications: mapToObject(notifications),
-  };
-}
 
 async function connectPostgres() {
   if (!databaseUrl) {
@@ -74,11 +51,37 @@ async function connectPostgres() {
       : { rejectUnauthorized: false },
   });
   await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS app_state (
+    CREATE TABLE IF NOT EXISTS users (
+      uid TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS credentials (
+      email TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
       data JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
+    );
+    CREATE TABLE IF NOT EXISTS order_messages (
+      order_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS notifications (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
   usePostgres = true;
   console.log('MoveTraq API connected to PostgreSQL');
@@ -87,30 +90,95 @@ async function connectPostgres() {
 async function loadStore() {
   if (!usePostgres) return;
 
-  const result = await pgPool.query('SELECT data FROM app_state WHERE id = $1', [postgresStateId]);
-  const store = result.rows[0]?.data;
-  if (!store) return;
-  loadMap(users, store.users);
-  loadMap(credentials, store.credentials);
-  loadMap(orders, store.orders);
-  loadMap(messages, store.messages);
-  loadMap(walletTransactions, store.walletTransactions);
-  loadMap(notifications, store.notifications);
+  const [
+    userRows,
+    credentialRows,
+    orderRows,
+    messageRows,
+    walletRows,
+    notificationRows,
+  ] = await Promise.all([
+    pgPool.query('SELECT uid, data FROM users'),
+    pgPool.query('SELECT email, password_hash FROM credentials'),
+    pgPool.query('SELECT id, data FROM orders'),
+    pgPool.query('SELECT order_id, data FROM order_messages'),
+    pgPool.query('SELECT user_id, data FROM wallet_transactions'),
+    pgPool.query('SELECT user_id, data FROM notifications'),
+  ]);
+
+  for (const row of userRows.rows) users.set(row.uid, row.data);
+  for (const row of credentialRows.rows) credentials.set(row.email, row.password_hash);
+  for (const row of orderRows.rows) orders.set(row.id, row.data);
+  for (const row of messageRows.rows) messages.set(row.order_id, row.data);
+  for (const row of walletRows.rows) walletTransactions.set(row.user_id, row.data);
+  for (const row of notificationRows.rows) notifications.set(row.user_id, row.data);
+
+  if (users.size === 0) {
+    const legacy = await pgPool.query(`
+      SELECT data
+      FROM app_state
+      WHERE id = 'movetraq-store'
+        AND to_regclass('public.app_state') IS NOT NULL
+      LIMIT 1
+    `).catch(() => ({ rows: [] }));
+    const store = legacy.rows[0]?.data;
+    if (store) {
+      for (const [key, item] of Object.entries(store.users || {})) users.set(key, item);
+      for (const [key, item] of Object.entries(store.credentials || {})) credentials.set(key, item);
+      for (const [key, item] of Object.entries(store.orders || {})) orders.set(key, item);
+      for (const [key, item] of Object.entries(store.messages || {})) messages.set(key, item);
+      for (const [key, item] of Object.entries(store.walletTransactions || {})) walletTransactions.set(key, item);
+      for (const [key, item] of Object.entries(store.notifications || {})) notifications.set(key, item);
+      await saveStore();
+      console.log('MoveTraq API migrated legacy app_state data to PostgreSQL tables');
+    }
+  }
+}
+
+async function upsertJsonMap(client, table, keyColumn, map) {
+  for (const [key, value] of map.entries()) {
+    await client.query(
+      `
+        INSERT INTO ${table} (${keyColumn}, data, updated_at)
+        VALUES ($1, $2::jsonb, NOW())
+        ON CONFLICT (${keyColumn})
+        DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+      `,
+      [key, JSON.stringify(value)],
+    );
+  }
 }
 
 async function saveStore() {
   if (!usePostgres) return;
 
-  const snapshot = storeSnapshot();
-  await pgPool.query(
-    `
-      INSERT INTO app_state (id, data, updated_at)
-      VALUES ($1, $2, NOW())
-      ON CONFLICT (id)
-      DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-    `,
-    [postgresStateId, snapshot],
-  );
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    await upsertJsonMap(client, 'users', 'uid', users);
+    for (const [email, passwordHash] of credentials.entries()) {
+      const user = [...users.values()].find((item) => item.email.toLowerCase() === email);
+      await client.query(
+        `
+          INSERT INTO credentials (email, user_id, password_hash, updated_at)
+          VALUES ($1, $2, $3, NOW())
+          ON CONFLICT (email)
+          DO UPDATE SET user_id = EXCLUDED.user_id, password_hash = EXCLUDED.password_hash, updated_at = NOW()
+        `,
+        [email, user?.uid || '', passwordHash],
+      );
+    }
+    await upsertJsonMap(client, 'orders', 'id', orders);
+    await upsertJsonMap(client, 'order_messages', 'order_id', messages);
+    await upsertJsonMap(client, 'wallet_transactions', 'user_id', walletTransactions);
+    await upsertJsonMap(client, 'notifications', 'user_id', notifications);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function now() {
@@ -251,6 +319,58 @@ function orderCode() {
   return `MT-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+function tx(type, title, sub, amount) {
+  return {
+    id: id('tx'),
+    type,
+    title,
+    sub,
+    amount: Number(amount || 0),
+    createdAt: now(),
+  };
+}
+
+function notification(title, body, type = 'delivery') {
+  return {
+    id: id('notif'),
+    title,
+    body,
+    type,
+    read: false,
+    createdAt: now(),
+  };
+}
+
+function addWalletTransaction(userId, item, balanceDelta = 0) {
+  const user = users.get(userId);
+  if (!user) return [];
+
+  const list = walletTransactions.get(userId) || [];
+  list.push(item);
+  walletTransactions.set(userId, list);
+  user.walletBalance = Number(user.walletBalance || 0) + Number(balanceDelta || 0);
+  users.set(userId, user);
+  return list;
+}
+
+function addNotification(userId, item) {
+  if (!users.has(userId)) return [];
+
+  const list = notifications.get(userId) || [];
+  list.push(item);
+  notifications.set(userId, list);
+  return list;
+}
+
+function requireOrderAccess(user, order) {
+  return (
+    order.senderId === user.uid ||
+    order.delivererId === user.uid ||
+    order.status === 'pendingOffer' ||
+    order.status === 'negotiating'
+  );
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -287,9 +407,9 @@ const server = http.createServer(async (req, res) => {
         phone: String(body.phone || '').trim(),
         activeRole: 'sender',
         rating: 5,
-        totalDeliveries: 128,
-        memberTier: 'Gold',
-        walletBalance: 42300,
+        totalDeliveries: 0,
+        memberTier: 'Bronze',
+        walletBalance: 0,
         delivererOnline: false,
         verified: false,
         vehicleType: 'bike',
@@ -351,11 +471,23 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'PATCH' && path === '/users/me') {
+      if (typeof body.name === 'string' && body.name.trim()) {
+        user.name = body.name.trim();
+      }
+      if (typeof body.phone === 'string') {
+        user.phone = body.phone.trim();
+      }
       if (body.activeRole === 'sender' || body.activeRole === 'deliverer') {
         user.activeRole = body.activeRole;
       }
       if (typeof body.delivererOnline === 'boolean') {
         user.delivererOnline = body.delivererOnline;
+      }
+      if (typeof body.vehicleType === 'string' && body.vehicleType.trim()) {
+        user.vehicleType = body.vehicleType.trim();
+      }
+      if (typeof body.rate === 'number') {
+        user.rate = Math.max(0, Number(body.rate));
       }
       await saveStore();
       json(res, 200, { user });
@@ -377,20 +509,51 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/orders') {
+      const price = Number(body.price || 0);
+      if (price < 0) {
+        json(res, 400, { error: 'Order price cannot be negative.' });
+        return;
+      }
+      if (price > 0 && Number(user.walletBalance || 0) < price) {
+        json(res, 400, { error: 'Please top up your wallet before creating this order.' });
+        return;
+      }
+
       const order = {
         ...body,
         id: id('order'),
         code: orderCode(),
         senderId: user.uid,
         senderName: user.name,
-        payout: Number(body.payout || Math.max(0, Number(body.price || 0) - 500)),
+        price,
+        payout: Number(body.payout || Math.max(0, price - 500)),
         status: body.delivererId ? 'accepted' : body.status || 'pendingOffer',
         createdAt: now(),
         deliveredAt: null,
         releasedAt: null,
         dStage: 0,
+        escrowHeld: price > 0,
+        escrowReleased: false,
+        escrowRefunded: false,
       };
       orders.set(order.id, order);
+      if (price > 0) {
+        addWalletTransaction(
+          user.uid,
+          tx('escrowHold', 'Escrow hold', `${order.code} ${order.title || 'delivery'}`, -price),
+          -price,
+        );
+      }
+      addNotification(
+        user.uid,
+        notification('Order created', `${order.code} is ready for courier offers.`, 'delivery'),
+      );
+      if (order.delivererId) {
+        addNotification(
+          order.delivererId,
+          notification('New assigned job', `${order.code} was assigned to you.`, 'job'),
+        );
+      }
       await saveStore();
       json(res, 201, { order });
       return;
@@ -404,18 +567,43 @@ const server = http.createServer(async (req, res) => {
         json(res, 404, { error: 'Order not found.' });
         return;
       }
+      if (!requireOrderAccess(user, order)) {
+        json(res, 403, { error: 'You do not have access to this order.' });
+        return;
+      }
+
+      if (req.method === 'GET' && !action) {
+        json(res, 200, { order });
+        return;
+      }
 
       if (req.method === 'POST' && action === 'accept') {
+        if (!['pendingOffer', 'negotiating'].includes(order.status)) {
+          json(res, 409, { error: 'This order is no longer available.' });
+          return;
+        }
         order.delivererId = body.delivererId || user.uid;
         order.delivererName = body.delivererName || user.name;
         order.status = 'accepted';
         order.dStage = 0;
+        addNotification(
+          order.senderId,
+          notification('Courier accepted', `${order.delivererName} accepted ${order.code}.`, 'delivery'),
+        );
+        addNotification(
+          order.delivererId,
+          notification('Job accepted', `You accepted ${order.code}.`, 'job'),
+        );
         await saveStore();
         json(res, 200, { order });
         return;
       }
 
       if (req.method === 'POST' && action === 'stage') {
+        if (order.delivererId && order.delivererId !== user.uid) {
+          json(res, 403, { error: 'Only the assigned deliverer can update delivery progress.' });
+          return;
+        }
         const stage = Number(body.stage);
         const statuses = ['accepted', 'pickedUp', 'delivered'];
         if (!statuses[stage]) {
@@ -425,12 +613,21 @@ const server = http.createServer(async (req, res) => {
         order.dStage = stage;
         order.status = statuses[stage];
         if (stage === 2) order.deliveredAt = now();
+        const titles = ['Courier en route', 'Picked up', 'Delivered'];
+        addNotification(
+          order.senderId,
+          notification(titles[stage], `${order.code} status updated.`, 'delivery'),
+        );
         await saveStore();
         json(res, 200, { order });
         return;
       }
 
       if (req.method === 'POST' && action === 'location') {
+        if (order.delivererId && order.delivererId !== user.uid) {
+          json(res, 403, { error: 'Only the assigned deliverer can update courier location.' });
+          return;
+        }
         order.courierLocation = {
           latitude: Number(body.latitude),
           longitude: Number(body.longitude),
@@ -442,31 +639,117 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'POST' && action === 'negotiate') {
-        order.price = Number(body.price);
+        const price = Number(body.price);
+        if (price < 0) {
+          json(res, 400, { error: 'Price cannot be negative.' });
+          return;
+        }
+        order.price = price;
         order.status = 'negotiating';
+        addNotification(
+          order.senderId,
+          notification('Price updated', `${order.code} is now negotiating at NGN ${price.toFixed(0)}.`, 'delivery'),
+        );
         await saveStore();
         json(res, 200, { order });
         return;
       }
 
       if (req.method === 'POST' && action === 'confirm-price') {
-        order.price = Number(body.price);
+        const price = Number(body.price);
+        if (price < 0) {
+          json(res, 400, { error: 'Price cannot be negative.' });
+          return;
+        }
+        if (order.senderId === user.uid && price > 0 && !order.escrowHeld && Number(user.walletBalance || 0) < price) {
+          json(res, 400, { error: 'Please top up your wallet before confirming this price.' });
+          return;
+        }
+        order.price = price;
+        order.payout = Math.max(0, price - 500);
         order.status = 'pendingOffer';
+        if (!order.escrowHeld && price > 0) {
+          addWalletTransaction(
+            order.senderId,
+            tx('escrowHold', 'Escrow hold', `${order.code} ${order.title || 'delivery'}`, -price),
+            -price,
+          );
+          order.escrowHeld = true;
+        }
+        addNotification(
+          order.senderId,
+          notification('Price confirmed', `${order.code} is open for couriers.`, 'delivery'),
+        );
         await saveStore();
         json(res, 200, { order });
         return;
       }
 
       if (req.method === 'POST' && action === 'release') {
+        if (order.senderId !== user.uid) {
+          json(res, 403, { error: 'Only the sender can release escrow.' });
+          return;
+        }
+        if (order.escrowReleased) {
+          json(res, 200, { order });
+          return;
+        }
         order.status = 'released';
         order.releasedAt = now();
+        order.escrowReleased = true;
+        if (order.delivererId) {
+          addWalletTransaction(
+            order.delivererId,
+            tx('released', 'Delivery payout', `${order.code} ${order.title || 'delivery'}`, Number(order.payout || 0)),
+            Number(order.payout || 0),
+          );
+          const deliverer = users.get(order.delivererId);
+          if (deliverer) {
+            deliverer.totalDeliveries = Number(deliverer.totalDeliveries || 0) + 1;
+            users.set(deliverer.uid, deliverer);
+          }
+          addNotification(
+            order.delivererId,
+            notification('Payment released', `NGN ${Number(order.payout || 0).toFixed(0)} was added to your wallet.`, 'wallet'),
+          );
+        }
+        addNotification(
+          order.senderId,
+          notification('Escrow released', `${order.code} has been completed.`, 'payment'),
+        );
         await saveStore();
         json(res, 200, { order });
         return;
       }
 
       if (req.method === 'POST' && action === 'cancel') {
+        if (order.senderId !== user.uid && order.delivererId !== user.uid) {
+          json(res, 403, { error: 'Only an order participant can cancel this order.' });
+          return;
+        }
+        if (order.status === 'released') {
+          json(res, 409, { error: 'Released orders cannot be cancelled.' });
+          return;
+        }
         order.status = 'cancelled';
+        if (order.escrowHeld && !order.escrowReleased && !order.escrowRefunded) {
+          addWalletTransaction(
+            order.senderId,
+            tx('refund', 'Escrow refund', `${order.code} ${order.title || 'delivery'}`, Number(order.price || 0)),
+            Number(order.price || 0),
+          );
+          order.escrowRefunded = true;
+        }
+        addNotification(
+          order.senderId,
+          notification('Order cancelled', `${order.code} was cancelled.`, 'delivery'),
+        );
+        if (order.delivererId) {
+          addNotification(
+            order.delivererId,
+            notification('Order cancelled', `${order.code} was cancelled.`, 'job'),
+          );
+        }
         await saveStore();
         json(res, 200, { order });
         return;
@@ -479,10 +762,15 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (req.method === 'POST') {
+          const text = String(body.text || '').trim();
+          if (!text) {
+            json(res, 400, { error: 'Message text is required.' });
+            return;
+          }
           const message = {
             id: id('msg'),
             senderId: String(body.senderId || user.uid),
-            text: String(body.text || '').trim(),
+            text,
             createdAt: now(),
           };
           list.push(message);
@@ -500,17 +788,25 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/wallet/transactions') {
-      const list = walletTransactions.get(user.uid) || [];
-      list.push({
-        id: id('tx'),
-        type: body.type || 'topup',
-        title: body.title || 'Wallet transaction',
-        sub: body.sub || '',
-        amount: Number(body.amount || 0),
-        createdAt: now(),
-      });
-      walletTransactions.set(user.uid, list);
-      user.walletBalance += Number(body.balanceDelta || 0);
+      const balanceDelta = Number(body.balanceDelta || 0);
+      if (balanceDelta < 0 && Number(user.walletBalance || 0) + balanceDelta < 0) {
+        json(res, 400, { error: 'Insufficient wallet balance.' });
+        return;
+      }
+      const list = addWalletTransaction(
+        user.uid,
+        tx(
+          body.type || 'topup',
+          body.title || 'Wallet transaction',
+          body.sub || '',
+          Number(body.amount || balanceDelta || 0),
+        ),
+        balanceDelta,
+      );
+      addNotification(
+        user.uid,
+        notification('Wallet updated', `${body.title || 'Wallet transaction'} was recorded.`, 'wallet'),
+      );
       await saveStore();
       json(res, 201, { user, transactions: list });
       return;

@@ -19,9 +19,7 @@ class LocalDataService {
   LocalDataService({
     NodeApiClient? api,
     bool useRemote = true,
-  })  : _api = useRemote ? api ?? NodeApiClient() : null {
-    _seedDemoData();
-  }
+  }) : _api = useRemote ? api ?? NodeApiClient() : null;
 
   final NodeApiClient? _api;
 
@@ -160,43 +158,6 @@ class LocalDataService {
   }
 
   // ---------------------------------------------------------------------------
-  // Demo data
-  // ---------------------------------------------------------------------------
-
-  void _seedDemoData() {
-    final deliverers = [
-      AppUser(
-        uid: 'demo-deliverer-1',
-        name: 'Emeka Obi',
-        email: 'emeka@example.com',
-        phone: '+2348010000001',
-        activeRole: UserRole.deliverer,
-        rating: 4.9,
-        totalDeliveries: 214,
-        memberTier: 'Gold',
-        delivererOnline: true,
-      ),
-      AppUser(
-        uid: 'demo-deliverer-2',
-        name: 'Amaka Chukwu',
-        email: 'amaka@example.com',
-        phone: '+2348010000002',
-        activeRole: UserRole.deliverer,
-        rating: 4.7,
-        totalDeliveries: 98,
-        memberTier: 'Silver',
-        delivererOnline: true,
-      ),
-    ];
-
-    for (final deliverer in deliverers) {
-      _users[deliverer.uid] = deliverer;
-    }
-
-    _usersController.add(Map<String, AppUser>.of(_users));
-  }
-
-  // ---------------------------------------------------------------------------
   // ID generators
   // ---------------------------------------------------------------------------
 
@@ -286,9 +247,9 @@ class LocalDataService {
       email: email.trim(),
       phone: phone.trim(),
       createdAt: DateTime.now(),
-      walletBalance: 42300,
-      memberTier: 'Gold',
-      totalDeliveries: 128,
+      walletBalance: 0,
+      memberTier: 'Bronze',
+      totalDeliveries: 0,
     );
 
     _users[uid] = user;
@@ -301,197 +262,13 @@ class LocalDataService {
 
     _authController.add(user);
 
-    _seedDemoNotifications(uid);
-    _seedDemoOrders(uid, user.name);
-
     return user;
   }
 
-  /// Creates demo orders for a newly registered user.
-  void _seedDemoOrders(
-    String senderId,
-    String senderName,
-  ) {
-    final now = DateTime.now();
-
-    final demoOrders = [
-      (
-        id: 'order_demo_4821',
-        code: 'MT-4821',
-        title: 'Wireless Headphones',
-        category: 'parcel',
-        pickupAddress: 'Ikeja City Mall',
-        dropoffAddress: '12 Admiralty Way',
-        price: 3500.0,
-        payout: 3000.0,
-        status: OrderStatus.pickedUp,
-        createdAt: now,
-      ),
-      (
-        id: 'order_demo_4820',
-        code: 'MT-4820',
-        title: 'Legal Documents',
-        category: 'document',
-        pickupAddress: 'Victoria Island',
-        dropoffAddress: '5 Herbert Macaulay, Y...',
-        price: 2000.0,
-        payout: 1500.0,
-        status: OrderStatus.accepted,
-        createdAt: now,
-      ),
-      (
-        id: 'order_demo_4790',
-        code: 'MT-4790',
-        title: 'Birthday Gift',
-        category: 'fragile',
-        pickupAddress: 'Ikeja City Mall',
-        dropoffAddress: 'Lekki Phase 1',
-        price: 4200.0,
-        payout: 3700.0,
-        status: OrderStatus.released,
-        createdAt: now.subtract(
-          const Duration(days: 1),
-        ),
-      ),
-      (
-        id: 'order_demo_4771',
-        code: 'MT-4771',
-        title: 'Weekly Groceries',
-        category: 'parcel',
-        pickupAddress: 'Shoprite, Surulere',
-        dropoffAddress: 'Gbagada',
-        price: 6800.0,
-        payout: 6300.0,
-        status: OrderStatus.released,
-        createdAt: now.subtract(
-          const Duration(days: 29),
-        ),
-      ),
-      (
-        id: 'order_demo_4765',
-        code: 'MT-4765',
-        title: 'Laptop',
-        category: 'parcel',
-        pickupAddress: 'Computer Village',
-        dropoffAddress: 'Maryland',
-        price: 8000.0,
-        payout: 7500.0,
-        status: OrderStatus.cancelled,
-        createdAt: now.subtract(
-          const Duration(days: 31),
-        ),
-      ),
-    ];
-
-    for (final demo in demoOrders) {
-      final isAssigned = demo.status != OrderStatus.pendingOffer;
-
-      _orders[demo.id] = ParcelOrder(
-        id: demo.id,
-        code: demo.code,
-        senderId: senderId,
-        senderName: senderName,
-        delivererId: isAssigned
-            ? 'demo-deliverer-1'
-            : null,
-        delivererName: isAssigned
-            ? 'Emeka Obi'
-            : null,
-        title: demo.title,
-        category: demo.category,
-        pickupAddress: demo.pickupAddress,
-        dropoffAddress: demo.dropoffAddress,
-        price: demo.price,
-        payout: demo.payout,
-        status: demo.status,
-        createdAt: demo.createdAt,
-        deliveredAt: demo.status == OrderStatus.released
-            ? demo.createdAt.add(
-                const Duration(hours: 1),
-              )
-            : null,
-        releasedAt: demo.status == OrderStatus.released
-            ? demo.createdAt.add(
-                const Duration(hours: 1, minutes: 5),
-              )
-            : null,
-      );
-    }
-
-    _ordersController.add(
-      Map<String, ParcelOrder>.of(_orders),
-    );
-  }
-
-  /// Creates demo notifications for a newly registered user.
-  void _seedDemoNotifications(String uid) {
-    final now = DateTime.now();
-
-    final demoNotifications = [
-      (
-        title: 'Daniel is almost there',
-        body:
-            'Your courier is 4 minutes from the drop-off. Get ready to receive.',
-        type: 'arriving',
-        createdAt: now,
-        read: false,
-      ),
-      (
-        title: 'Picked up',
-        body: 'MT-4821 was collected from Ikeja City Mall',
-        type: 'pickup',
-        createdAt: now.subtract(
-          const Duration(minutes: 18),
-        ),
-        read: false,
-      ),
-      (
-        title: 'Payment confirmed',
-        body: '₦3,500 charged to your card ending 4821.',
-        type: 'payment',
-        createdAt: now.subtract(
-          const Duration(minutes: 20),
-        ),
-        read: true,
-      ),
-      (
-        title: '20% off unlocked',
-        body: 'Your Gold perk applies to the next 3 deliveries.',
-        type: 'promo',
-        createdAt: now.subtract(
-          const Duration(days: 1),
-        ),
-        read: true,
-      ),
-    ];
-
-    final list = _notifs.putIfAbsent(
-      uid,
-      () => <NotificationItem>[],
-    );
-
-    for (final notification in demoNotifications) {
-      list.add(
-        NotificationItem(
-          id: _genNotificationId(),
-          title: notification.title,
-          body: notification.body,
-          type: notification.type,
-          read: notification.read,
-          createdAt: notification.createdAt,
-        ),
-      );
-    }
-
-    _notifsController.add(
-      Map<String, List<NotificationItem>>.of(_notifs),
-    );
-  }
-
-  /// Demo sign-in.
+  /// Local fallback sign-in.
   ///
-  /// Matches an existing account by email or phone.
-  /// If no account exists, a temporary demo account is created.
+  /// Matches an existing local fallback account by email or phone.
+  /// If no account exists, a temporary local account is created.
   Future<AppUser> signIn({
     required String emailOrPhone,
     required String password,
