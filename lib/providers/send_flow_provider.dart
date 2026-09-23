@@ -16,6 +16,8 @@ class SendFlowProvider extends ChangeNotifier {
   String title = '';
   String pickupAddress = 'Ikeja City Mall';
   String dropoffAddress = '12 Admiralty Way, Lekki';
+  LatLng? pickupLocation;
+  LatLng? dropoffLocation;
   bool isP2P = true; // peer-to-peer negotiated mode vs express fixed quote
   int speedIndex = 0; // used in Express mode: 0 = standard, 1 = express
   bool termsAgreed = true;
@@ -40,6 +42,8 @@ class SendFlowProvider extends ChangeNotifier {
     title = '';
     pickupAddress = 'Ikeja City Mall';
     dropoffAddress = '12 Admiralty Way, Lekki';
+    pickupLocation = null;
+    dropoffLocation = null;
     isP2P = true;
     speedIndex = 0;
     termsAgreed = true;
@@ -73,11 +77,25 @@ class SendFlowProvider extends ChangeNotifier {
     String? title,
     String? pickupAddress,
     String? dropoffAddress,
+    LatLng? pickupLocation,
+    LatLng? dropoffLocation,
+    bool clearPickupLocation = false,
+    bool clearDropoffLocation = false,
   }) {
     if (category != null) this.category = category;
     if (title != null) this.title = title;
     if (pickupAddress != null) this.pickupAddress = pickupAddress;
     if (dropoffAddress != null) this.dropoffAddress = dropoffAddress;
+    if (clearPickupLocation) {
+      this.pickupLocation = null;
+    } else if (pickupLocation != null) {
+      this.pickupLocation = pickupLocation;
+    }
+    if (clearDropoffLocation) {
+      this.dropoffLocation = null;
+    } else if (dropoffLocation != null) {
+      this.dropoffLocation = dropoffLocation;
+    }
     notifyListeners();
   }
 
@@ -174,6 +192,8 @@ class SendFlowProvider extends ChangeNotifier {
       category: category,
       pickupAddress: pickupAddress.isEmpty ? 'Current location' : pickupAddress,
       dropoffAddress: dropoffAddress.isEmpty ? 'Lekki Phase 1' : dropoffAddress,
+      pickupLocation: pickupLocation,
+      dropoffLocation: dropoffLocation,
       price: price,
       payout: deliveryFee,
       isExpress: express,

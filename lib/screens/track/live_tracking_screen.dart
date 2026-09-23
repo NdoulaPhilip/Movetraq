@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../models/parcel_order.dart';
 import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/live_google_map.dart';
 import '../../widgets/mini_map.dart';
 import '../../widgets/primary_button.dart';
 
@@ -36,10 +37,7 @@ class LiveTrackingScreen extends StatelessWidget {
           return Stack(
             children: [
               Positioned.fill(
-                child: MiniMap(
-                  height: null,
-                  courierLocation: courierLocation,
-                ),
+                child: LiveGoogleMap(order: order),
               ),
               SafeArea(
                 child: Padding(

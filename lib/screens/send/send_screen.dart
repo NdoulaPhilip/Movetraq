@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/parcel_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
@@ -220,7 +221,14 @@ class _SendScreenState extends State<SendScreen> {
                               hint: 'Enter pickup address',
                               onChanged: (value) => flow.setDetails(
                                 pickupAddress: value,
+                                clearPickupLocation: true,
                               ),
+                              onSuggestionSelected: (suggestion) {
+                                flow.setDetails(
+                                  pickupAddress: suggestion.address,
+                                  pickupLocation: _suggestionLocation(suggestion),
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -245,7 +253,14 @@ class _SendScreenState extends State<SendScreen> {
                               hint: 'Enter drop-off address',
                               onChanged: (value) => flow.setDetails(
                                 dropoffAddress: value,
+                                clearDropoffLocation: true,
                               ),
+                              onSuggestionSelected: (suggestion) {
+                                flow.setDetails(
+                                  dropoffAddress: suggestion.address,
+                                  dropoffLocation: _suggestionLocation(suggestion),
+                                );
+                              },
                             ),
                           ),
                           const Icon(Icons.edit_location_alt_outlined, color: AppColors.faint),
@@ -589,6 +604,13 @@ class _SendScreenState extends State<SendScreen> {
       ),
     );
   }
+
+  LatLng? _suggestionLocation(AddressSuggestion suggestion) {
+    final latitude = suggestion.latitude;
+    final longitude = suggestion.longitude;
+    if (latitude == null || longitude == null) return null;
+    return LatLng(latitude, longitude);
+  }
 }
 
 class _ModeTab extends StatelessWidget {
@@ -627,12 +649,14 @@ class _AddressField extends StatefulWidget {
   final String value;
   final String hint;
   final ValueChanged<String> onChanged;
+  final ValueChanged<AddressSuggestion>? onSuggestionSelected;
 
   const _AddressField({
     required this.label,
     required this.value,
     required this.hint,
     required this.onChanged,
+    this.onSuggestionSelected,
   });
 
   @override
@@ -703,7 +727,11 @@ class _AddressFieldState extends State<_AddressField> {
     _debounce?.cancel();
     _controller.text = value;
     _controller.selection = TextSelection.collapsed(offset: value.length);
-    widget.onChanged(value);
+    if (widget.onSuggestionSelected == null) {
+      widget.onChanged(value);
+    } else {
+      widget.onSuggestionSelected!(suggestion);
+    }
     setState(() {
       _suggestions = const [];
       _loading = false;

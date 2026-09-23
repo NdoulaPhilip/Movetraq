@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/parcel_order.dart';
 import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/live_google_map.dart';
 import '../../widgets/mini_map.dart';
 import '../../widgets/primary_button.dart';
 
@@ -59,7 +60,7 @@ class OrderDetailScreen extends StatelessWidget {
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          const Positioned.fill(child: MiniMap(height: null)),
+                          Positioned.fill(child: LiveGoogleMap(order: order)),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
                             decoration: BoxDecoration(

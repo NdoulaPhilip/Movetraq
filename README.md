@@ -68,14 +68,16 @@ https://movetraq-api.onrender.com
 Run explicitly against Render:
 
 ```bash
-flutter run --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
+flutter run --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
 ```
 
 Build APK:
 
 ```bash
-flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
+flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
 ```
+
+The live tracking screen uses Google Maps when `GOOGLE_MAPS_API_KEY` is provided. Without it, the app falls back to the lightweight in-app map preview.
 
 Local in-memory fallback is disabled for normal builds. Only enable it for isolated development:
 
