@@ -28,6 +28,13 @@ loadEnvFile();
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || 'movetraq-local-secret';
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+const nodeEnv = process.env.NODE_ENV || 'development';
+const isProduction = nodeEnv === 'production';
+const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7);
+const allowedOrigins = String(process.env.CORS_ORIGINS || '*')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const users = new Map();
 const credentials = new Map();
@@ -37,6 +44,7 @@ const walletTransactions = new Map();
 const notifications = new Map();
 let pgPool = null;
 let usePostgres = false;
+const rateLimitBuckets = new Map();
 
 async function connectPostgres() {
   if (!databaseUrl) {
@@ -190,13 +198,51 @@ function id(prefix) {
 }
 
 function json(res, status, body) {
+  const origin = res.req?.headers?.origin;
+  const allowOrigin =
+    allowedOrigins.includes('*') || !origin || allowedOrigins.includes(origin)
+      ? origin || '*'
+      : allowedOrigins[0] || '*';
   res.writeHead(status, {
     'content-type': 'application/json',
-    'access-control-allow-origin': '*',
+    'access-control-allow-origin': allowOrigin,
     'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS',
     'access-control-allow-headers': 'content-type,authorization',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'cache-control': 'no-store',
   });
   res.end(JSON.stringify(body));
+}
+
+function clientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown')
+    .split(',')[0]
+    .trim();
+}
+
+function rateLimit(req, res, key, limit, windowMs) {
+  const bucketKey = `${key}:${clientIp(req)}`;
+  const current = Date.now();
+  const bucket = rateLimitBuckets.get(bucketKey);
+  if (!bucket || bucket.resetAt <= current) {
+    rateLimitBuckets.set(bucketKey, { count: 1, resetAt: current + windowMs });
+    return true;
+  }
+  bucket.count += 1;
+  if (bucket.count > limit) {
+    json(res, 429, { error: 'Too many requests. Please try again shortly.' });
+    return false;
+  }
+  return true;
+}
+
+function text(value, fallback = '', max = 240) {
+  return String(value ?? fallback).trim().slice(0, max);
+}
+
+function isEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -205,8 +251,10 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
 }
 
 function verifyPassword(password, stored) {
+  if (!stored || !stored.includes(':')) return false;
   const [salt, expected] = stored.split(':');
   const actual = hashPassword(password, salt).split(':')[1];
+  if (actual.length !== expected.length) return false;
   return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
 }
 
@@ -216,7 +264,12 @@ function base64url(value) {
 
 function signToken(userId) {
   const header = base64url({ alg: 'HS256', typ: 'JWT' });
-  const payload = base64url({ sub: userId, iat: Math.floor(Date.now() / 1000) });
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload = base64url({
+    sub: userId,
+    iat: issuedAt,
+    exp: issuedAt + accessTokenTtlSeconds,
+  });
   const signature = crypto
     .createHmac('sha256', jwtSecret)
     .update(`${header}.${payload}`)
@@ -232,10 +285,19 @@ function verifyToken(token) {
     .createHmac('sha256', jwtSecret)
     .update(`${header}.${payload}`)
     .digest('base64url');
+  if (signature.length !== expected.length) return null;
   if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
     return null;
   }
-  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  let decoded;
+  try {
+    decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (decoded.exp && decoded.exp < Math.floor(Date.now() / 1000)) {
+    return null;
+  }
   return users.get(decoded.sub) || null;
 }
 
@@ -364,6 +426,19 @@ function addNotification(userId, item) {
   return list;
 }
 
+function addDeliveryEvent(order, type, actorId, note) {
+  const list = Array.isArray(order.deliveryEvents) ? order.deliveryEvents : [];
+  list.push({
+    id: id('event'),
+    type,
+    actorId,
+    note,
+    createdAt: now(),
+  });
+  order.deliveryEvents = list;
+  return list;
+}
+
 function readLocation(body) {
   const latitude = Number(body.latitude);
   const longitude = Number(body.longitude);
@@ -476,6 +551,7 @@ function requireOrderAccess(user, order) {
 }
 
 const server = http.createServer(async (req, res) => {
+  res.req = req;
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const path = url.pathname;
@@ -504,10 +580,11 @@ const server = http.createServer(async (req, res) => {
     const body = ['POST', 'PATCH'].includes(req.method) ? await readBody(req) : {};
 
     if (req.method === 'POST' && path === '/auth/signup') {
-      const email = String(body.email || '').trim().toLowerCase();
+      if (!rateLimit(req, res, 'auth:signup', 8, 15 * 60 * 1000)) return;
+      const email = text(body.email, '', 180).toLowerCase();
       const password = String(body.password || '');
-      if (!email || password.length < 6) {
-        json(res, 400, { error: 'Email and a 6 character password are required.' });
+      if (!isEmail(email) || password.length < 6) {
+        json(res, 400, { error: 'A valid email and a 6 character password are required.' });
         return;
       }
       if ([...users.values()].some((user) => user.email.toLowerCase() === email)) {
@@ -517,9 +594,9 @@ const server = http.createServer(async (req, res) => {
 
       const user = {
         uid: id('user'),
-        name: String(body.name || 'MoveTraq User').trim(),
+        name: text(body.name, 'MoveTraq User', 80) || 'MoveTraq User',
         email,
-        phone: String(body.phone || '').trim(),
+        phone: text(body.phone, '', 32),
         activeRole: 'sender',
         rating: 5,
         totalDeliveries: 0,
@@ -541,10 +618,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/auth/signin') {
-      const login = String(body.emailOrPhone || '').trim().toLowerCase();
+      if (!rateLimit(req, res, 'auth:signin', 20, 15 * 60 * 1000)) return;
+      const rawLogin = text(body.emailOrPhone, '', 180);
+      const login = rawLogin.toLowerCase();
       const password = String(body.password || '');
       const user = [...users.values()].find(
-        (item) => item.email.toLowerCase() === login || item.phone === body.emailOrPhone,
+        (item) => item.email.toLowerCase() === login || item.phone === rawLogin,
       );
       if (!user || !verifyPassword(password, credentials.get(user.email.toLowerCase()))) {
         json(res, 401, { error: 'Invalid email/phone or password.' });
@@ -555,7 +634,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/auth/reset-password') {
-      const rawLogin = String(body.emailOrPhone || '').trim();
+      if (!rateLimit(req, res, 'auth:reset-password', 6, 30 * 60 * 1000)) return;
+      const rawLogin = text(body.emailOrPhone, '', 180);
       const login = rawLogin.toLowerCase();
       const newPassword = String(body.newPassword || '');
       if (!login || newPassword.length < 6) {
@@ -577,6 +657,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && path === '/auth/logout') {
+      json(res, 200, { ok: true });
+      return;
+    }
+
     const user = requireAuth(req, res);
     if (!user) return;
 
@@ -587,10 +672,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'PATCH' && path === '/users/me') {
       if (typeof body.name === 'string' && body.name.trim()) {
-        user.name = body.name.trim();
+        user.name = text(body.name, user.name, 80);
       }
       if (typeof body.phone === 'string') {
-        user.phone = body.phone.trim();
+        user.phone = text(body.phone, '', 32);
       }
       if (body.activeRole === 'sender' || body.activeRole === 'deliverer') {
         user.activeRole = body.activeRole;
@@ -599,7 +684,7 @@ const server = http.createServer(async (req, res) => {
         user.delivererOnline = body.delivererOnline;
       }
       if (typeof body.vehicleType === 'string' && body.vehicleType.trim()) {
-        user.vehicleType = body.vehicleType.trim();
+        user.vehicleType = text(body.vehicleType, user.vehicleType, 40);
       }
       if (typeof body.rate === 'number') {
         user.rate = Math.max(0, Number(body.rate));
@@ -643,8 +728,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/orders') {
       const price = Number(body.price || 0);
-      if (price < 0) {
-        json(res, 400, { error: 'Order price cannot be negative.' });
+      if (!Number.isFinite(price) || price < 0) {
+        json(res, 400, { error: 'Order price must be a valid positive number.' });
+        return;
+      }
+      const payout = Number(body.payout || Math.max(0, price - 500));
+      if (!Number.isFinite(payout) || payout < 0 || payout > price) {
+        json(res, 400, { error: 'Order payout is invalid.' });
         return;
       }
       if (price > 0 && Number(user.walletBalance || 0) < price) {
@@ -678,7 +768,7 @@ const server = http.createServer(async (req, res) => {
         speedIndex: !isP2P && body.speedIndex !== undefined ? Number(body.speedIndex) : null,
         speedLabel: !isP2P ? String(body.speedLabel || 'Express') : null,
         price,
-        payout: Number(body.payout || Math.max(0, price - 500)),
+        payout,
         status: delivererId ? 'accepted' : 'pendingOffer',
         createdAt: now(),
         deliveredAt: null,
@@ -688,6 +778,7 @@ const server = http.createServer(async (req, res) => {
         escrowReleased: false,
         escrowRefunded: false,
       };
+      addDeliveryEvent(order, 'created', user.uid, targetDelivererName ? 'P2P request created' : 'Order opened');
       orders.set(order.id, order);
       if (price > 0) {
         addWalletTransaction(
@@ -753,6 +844,7 @@ const server = http.createServer(async (req, res) => {
         order.delivererName = user.name;
         order.status = 'accepted';
         order.dStage = 0;
+        addDeliveryEvent(order, 'accepted', user.uid, 'Courier accepted the order');
         addNotification(
           order.senderId,
           notification('Courier accepted', `${order.delivererName} accepted ${order.code}.`, 'delivery'),
@@ -767,7 +859,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'POST' && action === 'stage') {
-        if (order.delivererId && order.delivererId !== user.uid) {
+        if (!order.delivererId || order.delivererId !== user.uid) {
           json(res, 403, { error: 'Only the assigned deliverer can update delivery progress.' });
           return;
         }
@@ -780,6 +872,7 @@ const server = http.createServer(async (req, res) => {
         order.dStage = stage;
         order.status = statuses[stage];
         if (stage === 2) order.deliveredAt = now();
+        addDeliveryEvent(order, statuses[stage], user.uid, `${order.code} moved to ${statuses[stage]}`);
         const titles = ['Courier en route', 'Picked up', 'Delivered'];
         addNotification(
           order.senderId,
@@ -791,14 +884,16 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'POST' && action === 'location') {
-        if (order.delivererId && order.delivererId !== user.uid) {
+        if (!order.delivererId || order.delivererId !== user.uid) {
           json(res, 403, { error: 'Only the assigned deliverer can update courier location.' });
           return;
         }
-        order.courierLocation = {
-          latitude: Number(body.latitude),
-          longitude: Number(body.longitude),
-        };
+        const location = readLocation(body);
+        if (!location) {
+          json(res, 400, { error: 'Valid latitude and longitude are required.' });
+          return;
+        }
+        order.courierLocation = location;
         order.simulatedLocation = false;
         await saveStore();
         json(res, 200, { order });
@@ -807,12 +902,17 @@ const server = http.createServer(async (req, res) => {
 
       if (req.method === 'POST' && action === 'negotiate') {
         const price = Number(body.price);
-        if (price < 0) {
-          json(res, 400, { error: 'Price cannot be negative.' });
+        if (!Number.isFinite(price) || price < 0) {
+          json(res, 400, { error: 'Price must be a valid positive number.' });
+          return;
+        }
+        if (![order.senderId, order.delivererId, order.targetDelivererId].includes(user.uid)) {
+          json(res, 403, { error: 'Only order participants can negotiate this order.' });
           return;
         }
         order.price = price;
         order.status = 'negotiating';
+        addDeliveryEvent(order, 'negotiating', user.uid, `Price updated to NGN ${price.toFixed(0)}`);
         addNotification(
           order.senderId,
           notification('Price updated', `${order.code} is now negotiating at NGN ${price.toFixed(0)}.`, 'delivery'),
@@ -824,8 +924,12 @@ const server = http.createServer(async (req, res) => {
 
       if (req.method === 'POST' && action === 'confirm-price') {
         const price = Number(body.price);
-        if (price < 0) {
-          json(res, 400, { error: 'Price cannot be negative.' });
+        if (!Number.isFinite(price) || price < 0) {
+          json(res, 400, { error: 'Price must be a valid positive number.' });
+          return;
+        }
+        if (order.senderId !== user.uid) {
+          json(res, 403, { error: 'Only the sender can confirm the final price.' });
           return;
         }
         if (order.senderId === user.uid && price > 0 && !order.escrowHeld && Number(user.walletBalance || 0) < price) {
@@ -835,6 +939,7 @@ const server = http.createServer(async (req, res) => {
         order.price = price;
         order.payout = Math.max(0, price - 500);
         order.status = 'pendingOffer';
+        addDeliveryEvent(order, 'priceConfirmed', user.uid, `Price confirmed at NGN ${price.toFixed(0)}`);
         if (!order.escrowHeld && price > 0) {
           addWalletTransaction(
             order.senderId,
@@ -864,6 +969,7 @@ const server = http.createServer(async (req, res) => {
         order.status = 'released';
         order.releasedAt = now();
         order.escrowReleased = true;
+        addDeliveryEvent(order, 'released', user.uid, 'Sender released escrow');
         if (order.delivererId) {
           addWalletTransaction(
             order.delivererId,
@@ -899,6 +1005,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         order.status = 'cancelled';
+        addDeliveryEvent(order, 'cancelled', user.uid, 'Order cancelled');
         if (order.escrowHeld && !order.escrowReleased && !order.escrowRefunded) {
           addWalletTransaction(
             order.senderId,
@@ -936,8 +1043,8 @@ const server = http.createServer(async (req, res) => {
           }
           const message = {
             id: id('msg'),
-            senderId: String(body.senderId || user.uid),
-            text,
+            senderId: user.uid,
+            text: text.slice(0, 1000),
             createdAt: now(),
           };
           list.push(message);
@@ -963,9 +1070,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/wallet/topup') {
+      if (!rateLimit(req, res, 'wallet:topup', 20, 15 * 60 * 1000)) return;
       const amount = Number(body.amount || 0);
       if (!Number.isFinite(amount) || amount <= 0) {
         json(res, 400, { error: 'A positive top-up amount is required.' });
+        return;
+      }
+      if (process.env.DISABLE_TEST_WALLET_TOPUPS === 'true') {
+        json(res, 403, { error: 'Wallet top-up requires a payment provider in production.' });
         return;
       }
       const list = addWalletTransaction(
@@ -980,6 +1092,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/wallet/withdraw') {
+      if (!rateLimit(req, res, 'wallet:withdraw', 10, 15 * 60 * 1000)) return;
       const amount = Number(body.amount || 0);
       if (!Number.isFinite(amount) || amount <= 0) {
         json(res, 400, { error: 'A positive withdrawal amount is required.' });
@@ -1001,6 +1114,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/wallet/transactions') {
+      if (isProduction) {
+        json(res, 403, { error: 'Direct wallet transactions are disabled in production.' });
+        return;
+      }
       const balanceDelta = Number(body.balanceDelta || 0);
       if (balanceDelta < 0 && Number(user.walletBalance || 0) + balanceDelta < 0) {
         json(res, 400, { error: 'Insufficient wallet balance.' });
@@ -1063,6 +1180,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function start() {
+  if (isProduction && jwtSecret === 'movetraq-local-secret') {
+    throw new Error('JWT_SECRET must be set in production.');
+  }
   await connectPostgres();
   await loadStore();
   await saveStore();
