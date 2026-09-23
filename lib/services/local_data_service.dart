@@ -471,9 +471,12 @@ class LocalDataService {
       payout: draft.payout,
       isExpress: draft.isExpress,
       isP2P: draft.isP2P,
-      status: draft.delivererId == null
-          ? draft.status
-          : OrderStatus.accepted,
+      matchingMode: draft.matchingMode,
+      speedIndex: draft.speedIndex,
+      speedLabel: draft.speedLabel,
+      targetDelivererId: draft.targetDelivererId,
+      targetDelivererName: draft.targetDelivererName,
+      status: draft.status,
       createdAt: DateTime.now(),
     );
 

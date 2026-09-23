@@ -54,6 +54,11 @@ class ParcelOrder {
   final double payout; // what the deliverer earns
   final bool isExpress;
   final bool isP2P; // peer negotiated vs instant match
+  final String matchingMode; // p2p or express
+  final int? speedIndex;
+  final String? speedLabel;
+  final String? targetDelivererId;
+  final String? targetDelivererName;
   final OrderStatus status;
   final DateTime createdAt;
   final DateTime? deliveredAt;
@@ -78,6 +83,11 @@ class ParcelOrder {
     required this.payout,
     this.isExpress = false,
     this.isP2P = false,
+    this.matchingMode = 'p2p',
+    this.speedIndex,
+    this.speedLabel,
+    this.targetDelivererId,
+    this.targetDelivererName,
     this.status = OrderStatus.pendingOffer,
     required this.createdAt,
     this.deliveredAt,
@@ -112,6 +122,11 @@ class ParcelOrder {
       payout: (json['payout'] as num?)?.toDouble() ?? 0,
       isExpress: json['isExpress'] as bool? ?? false,
       isP2P: json['isP2P'] as bool? ?? false,
+      matchingMode: json['matchingMode'] as String? ?? 'p2p',
+      speedIndex: (json['speedIndex'] as num?)?.toInt(),
+      speedLabel: json['speedLabel'] as String?,
+      targetDelivererId: json['targetDelivererId'] as String?,
+      targetDelivererName: json['targetDelivererName'] as String?,
       status: orderStatusFromJson(json['status'] as String?),
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.now(),
@@ -144,6 +159,11 @@ class ParcelOrder {
       'payout': payout,
       'isExpress': isExpress,
       'isP2P': isP2P,
+      'matchingMode': matchingMode,
+      'speedIndex': speedIndex,
+      'speedLabel': speedLabel,
+      'targetDelivererId': targetDelivererId,
+      'targetDelivererName': targetDelivererName,
       'status': status.name,
       'createdAt': createdAt.toIso8601String(),
       'deliveredAt': deliveredAt?.toIso8601String(),
@@ -157,6 +177,7 @@ class ParcelOrder {
     String? delivererName,
     LatLng? courierLocation,
     double? price,
+    double? payout,
     OrderStatus? status,
     DateTime? deliveredAt,
     DateTime? releasedAt,
@@ -177,9 +198,14 @@ class ParcelOrder {
       dropoffLocation: dropoffLocation,
       courierLocation: courierLocation ?? this.courierLocation,
       price: price ?? this.price,
-      payout: payout,
+      payout: payout ?? this.payout,
       isExpress: isExpress,
       isP2P: isP2P,
+      matchingMode: matchingMode,
+      speedIndex: speedIndex,
+      speedLabel: speedLabel,
+      targetDelivererId: targetDelivererId,
+      targetDelivererName: targetDelivererName,
       status: status ?? this.status,
       createdAt: createdAt,
       deliveredAt: deliveredAt ?? this.deliveredAt,

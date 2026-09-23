@@ -155,23 +155,34 @@ class SendFlowProvider extends ChangeNotifier {
     return expressSpeedPrices[speedIndex];
   }
 
+  double get serviceFee => 500;
+  double get totalPrice => effectivePrice + serviceFee;
+  String get selectedSpeedLabel => expressSpeedLabels[speedIndex];
+
   Future<String> submitOrder(AppUser sender) async {
-    final price = effectivePrice;
+    final deliveryFee = effectivePrice;
+    final price = totalPrice;
+    final express = !isP2P;
     final draft = ParcelOrder(
       id: '',
       code: '',
       senderId: sender.uid,
       senderName: sender.name,
-      delivererId: isP2P ? selectedDelivererId : null,
-      delivererName: isP2P ? selectedDelivererName : null,
+      delivererId: null,
+      delivererName: null,
       title: title.isEmpty ? _defaultTitleFor(category) : title,
       category: category,
       pickupAddress: pickupAddress.isEmpty ? 'Current location' : pickupAddress,
       dropoffAddress: dropoffAddress.isEmpty ? 'Lekki Phase 1' : dropoffAddress,
       price: price,
-      payout: price - 500, // platform fee approximation
-      isExpress: !isP2P && speedIndex == 1,
+      payout: deliveryFee,
+      isExpress: express,
       isP2P: isP2P,
+      matchingMode: express ? 'express' : 'p2p',
+      speedIndex: express ? speedIndex : null,
+      speedLabel: express ? selectedSpeedLabel : null,
+      targetDelivererId: isP2P ? selectedDelivererId : null,
+      targetDelivererName: isP2P ? selectedDelivererName : null,
       status: OrderStatus.pendingOffer,
       createdAt: DateTime.now(),
     );

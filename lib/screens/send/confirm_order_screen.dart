@@ -14,7 +14,8 @@ class ConfirmOrderScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final flow = context.watch<SendFlowProvider>();
     final auth = context.watch<AuthProvider>();
-    final total = (flow.proposal ?? flow.basePrice) + 500;
+    final deliveryFee = flow.effectivePrice;
+    final total = flow.totalPrice;
 
     return Scaffold(
       body: SafeArea(
@@ -34,7 +35,7 @@ class ConfirmOrderScreen extends StatelessWidget {
                     _Row('Pickup', flow.pickupAddress.isEmpty ? 'Current location' : flow.pickupAddress),
                     _Row('Drop-off', flow.dropoffAddress.isEmpty ? 'Lekki Phase 1' : flow.dropoffAddress),
                     _Row('Deliverer', flow.selectedDelivererName ?? 'Instant match'),
-                    _Row('Speed', flow.isExpress ? 'Express' : 'Standard'),
+                    _Row('Speed', flow.isExpress ? flow.selectedSpeedLabel : 'Peer-to-peer'),
                   ],
                 ),
               ),
@@ -44,8 +45,8 @@ class ConfirmOrderScreen extends StatelessWidget {
                 decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(20)),
                 child: Column(
                   children: [
-                    _DarkRow('Delivery fee', '₦${(flow.proposal ?? flow.basePrice).toStringAsFixed(0)}'),
-                    _DarkRow('Service fee', '₦500'),
+                    _DarkRow('Delivery fee', '₦${deliveryFee.toStringAsFixed(0)}'),
+                    _DarkRow('Service fee', '₦${flow.serviceFee.toStringAsFixed(0)}'),
                     const Divider(color: Color(0xFF2A2D34), height: 24),
                     _DarkRow('Total', '₦${total.toStringAsFixed(0)}', bold: true),
                   ],

@@ -282,11 +282,13 @@ function visibleOrders(user) {
 
   return [...orders.values()]
     .filter((order) => {
-      return (
-        order.senderId === user.uid ||
-        order.delivererId === user.uid ||
-        order.status === 'pendingOffer'
-      );
+      if (order.senderId === user.uid || order.delivererId === user.uid) {
+        return true;
+      }
+      if (order.targetDelivererId) {
+        return order.targetDelivererId === user.uid;
+      }
+      return order.status === 'pendingOffer';
     })
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
@@ -379,6 +381,13 @@ function readLocation(body) {
 }
 
 function requireOrderAccess(user, order) {
+  if (order.targetDelivererId) {
+    return (
+      order.senderId === user.uid ||
+      order.delivererId === user.uid ||
+      order.targetDelivererId === user.uid
+    );
+  }
   return (
     order.senderId === user.uid ||
     order.delivererId === user.uid ||
@@ -558,15 +567,34 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      const isP2P = body.isP2P !== false && body.matchingMode !== 'express';
+      const matchingMode = isP2P ? 'p2p' : 'express';
+      const targetDelivererId =
+        isP2P && body.targetDelivererId ? String(body.targetDelivererId) : null;
+      const targetDelivererName =
+        isP2P && body.targetDelivererName ? String(body.targetDelivererName) : null;
+      const autoAccept = Boolean(body.autoAccept && body.delivererId);
+      const delivererId = autoAccept ? String(body.delivererId) : null;
+      const delivererName = autoAccept ? String(body.delivererName || '') : null;
+
       const order = {
         ...body,
         id: id('order'),
         code: orderCode(),
         senderId: user.uid,
         senderName: user.name,
+        delivererId,
+        delivererName,
+        targetDelivererId,
+        targetDelivererName,
+        matchingMode,
+        isP2P,
+        isExpress: !isP2P,
+        speedIndex: !isP2P && body.speedIndex !== undefined ? Number(body.speedIndex) : null,
+        speedLabel: !isP2P ? String(body.speedLabel || 'Express') : null,
         price,
         payout: Number(body.payout || Math.max(0, price - 500)),
-        status: body.delivererId ? 'accepted' : body.status || 'pendingOffer',
+        status: delivererId ? 'accepted' : 'pendingOffer',
         createdAt: now(),
         deliveredAt: null,
         releasedAt: null,
@@ -585,9 +613,20 @@ const server = http.createServer(async (req, res) => {
       }
       addNotification(
         user.uid,
-        notification('Order created', `${order.code} is ready for courier offers.`, 'delivery'),
+        notification(
+          'Order created',
+          targetDelivererName
+            ? `${order.code} was sent to ${targetDelivererName}.`
+            : `${order.code} is ready for courier offers.`,
+          'delivery',
+        ),
       );
-      if (order.delivererId) {
+      if (targetDelivererId) {
+        addNotification(
+          targetDelivererId,
+          notification('New P2P delivery request', `${user.name} sent you ${order.code}.`, 'job'),
+        );
+      } else if (order.delivererId) {
         addNotification(
           order.delivererId,
           notification('New assigned job', `${order.code} was assigned to you.`, 'job'),
@@ -621,8 +660,12 @@ const server = http.createServer(async (req, res) => {
           json(res, 409, { error: 'This order is no longer available.' });
           return;
         }
-        order.delivererId = body.delivererId || user.uid;
-        order.delivererName = body.delivererName || user.name;
+        if (order.targetDelivererId && order.targetDelivererId !== user.uid) {
+          json(res, 403, { error: 'This P2P request was sent to another deliverer.' });
+          return;
+        }
+        order.delivererId = user.uid;
+        order.delivererName = user.name;
         order.status = 'accepted';
         order.dStage = 0;
         addNotification(

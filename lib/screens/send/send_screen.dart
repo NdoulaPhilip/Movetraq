@@ -536,13 +536,21 @@ class _SendScreenState extends State<SendScreen> {
                 child: ElevatedButton(
                   onPressed: !flow.termsAgreed
                       ? null
-                      : () {
+                      : () async {
                           if (flow.isP2P) {
                             Navigator.pushNamed(context, '/pick-deliverer');
                           } else {
                             final auth = context.read<AuthProvider>();
-                            if (auth.profile != null) flow.submitOrder(auth.profile!);
-                            Navigator.pushNamed(context, '/send-done');
+                            if (auth.profile == null) return;
+                            try {
+                              await flow.submitOrder(auth.profile!);
+                              if (context.mounted) Navigator.pushNamed(context, '/send-done');
+                            } catch (error) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(error.toString())),
+                              );
+                            }
                           }
                         },
                   style: ElevatedButton.styleFrom(
