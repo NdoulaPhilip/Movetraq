@@ -1,5 +1,12 @@
 # MoveTraq
 
+## Online Deployment
+
+Use `render.production.yaml` for the current Supabase API and React admin.
+See [go online checklist](docs/GO_ONLINE.md) for cloud access, secrets,
+database migration checks and verification. The root `render.yaml` remains the
+legacy mobile API deployment; do not substitute archive deployment scripts.
+
 ## Archive Merge
 
 The supplied `Movetraq.rar` is being selectively merged while preserving the
