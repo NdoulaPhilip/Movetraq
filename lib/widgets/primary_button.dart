@@ -19,7 +19,7 @@ class PrimaryButton extends StatelessWidget {
     this.foreground = Colors.white,
     this.trailingIcon,
     this.loading = false,
-    this.height = 56,
+    this.height = 50,
   });
 
   @override
@@ -33,19 +33,30 @@ class PrimaryButton extends StatelessWidget {
           backgroundColor: background,
           foregroundColor: foreground,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.button)),
+          shadowColor: background == AppColors.ink
+              ? const Color(0x4010283F)
+              : Colors.transparent,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.button)),
         ),
         child: loading
             ? SizedBox(
                 height: 22,
                 width: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.4, color: foreground),
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.4, color: foreground),
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: foreground)),
+                  Flexible(
+                      child: Text(label,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                              color: foreground))),
                   if (trailingIcon != null) ...[
                     const SizedBox(width: 8),
                     Icon(trailingIcon, size: 19, color: foreground),
@@ -67,8 +78,8 @@ class SecondaryButton extends StatelessWidget {
     super.key,
     required this.label,
     required this.onPressed,
-    this.height = 54,
-    this.fontSize = 15.5,
+    this.height = 50,
+    this.fontSize = 14,
     this.radius = AppRadius.button,
   });
 
@@ -81,10 +92,13 @@ class SecondaryButton extends StatelessWidget {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.ink,
-          side: const BorderSide(color: AppColors.border, width: 1),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFDCE2E6), width: 1),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(radius)),
         ),
-        child: Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: fontSize)),
+        child: Text(label,
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: fontSize)),
       ),
     );
   }

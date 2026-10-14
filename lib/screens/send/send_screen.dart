@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/parcel_order.dart';
-import '../../providers/auth_provider.dart';
 import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../services/node_api_client.dart';
@@ -32,20 +31,11 @@ class _SendScreenState extends State<SendScreen> {
     ('clothing', 'Clothing', Icons.checkroom_outlined),
   ];
 
-  static final Uint8List _samplePng = Uint8List.fromList(const [
-    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-    0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
-    0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 207, 240, 31,
-    0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78,
-    68, 174, 66, 96, 130,
-  ]);
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<SendFlowProvider>().reset();
       _recoverLostPicture();
     });
   }
@@ -83,11 +73,6 @@ class _SendScreenState extends State<SendScreen> {
                   title: 'Take a photo',
                   onTap: () => Navigator.pop(context, _PictureSource.camera),
                 ),
-                _PictureSourceTile(
-                  icon: Icons.inventory_2_outlined,
-                  title: 'Use sample picture',
-                  onTap: () => Navigator.pop(context, _PictureSource.sample),
-                ),
               ],
             ),
           ),
@@ -95,17 +80,11 @@ class _SendScreenState extends State<SendScreen> {
       },
     );
     if (source == null || !mounted) return;
-    if (source == _PictureSource.sample) {
-      flow.addParcelPhoto(_sampleParcelImage());
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sample picture added.')),
-      );
-      return;
-    }
-
     await _addParcelPicture(
       flow,
-      source == _PictureSource.camera ? ImageSource.camera : ImageSource.gallery,
+      source == _PictureSource.camera
+          ? ImageSource.camera
+          : ImageSource.gallery,
     );
   }
 
@@ -131,6 +110,15 @@ class _SendScreenState extends State<SendScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Picture added.')),
       );
+    } on MissingPluginException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Picture picker is not loaded yet. Stop the app and run it again.',
+          ),
+        ),
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -154,8 +142,6 @@ class _SendScreenState extends State<SendScreen> {
     }
   }
 
-  Uint8List _sampleParcelImage() => _samplePng;
-
   @override
   Widget build(BuildContext context) {
     final flow = context.watch<SendFlowProvider>();
@@ -167,13 +153,13 @@ class _SendScreenState extends State<SendScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 116),
               children: [
-                const ScreenHeader(title: 'Send'),
-                const Text('New order',
-                    style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w700, fontSize: 24, letterSpacing: -0.3, color: AppColors.ink)),
+                const ScreenHeader(title: 'New order'),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(color: const Color(0xFFF3F2EC), borderRadius: BorderRadius.circular(16)),
+                  decoration: BoxDecoration(
+                      color: const Color(0xFFF3F2EC),
+                      borderRadius: BorderRadius.circular(16)),
                   child: Row(
                     children: [
                       Expanded(
@@ -197,7 +183,8 @@ class _SendScreenState extends State<SendScreen> {
                 ),
                 const SizedBox(height: 18),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(22),
@@ -211,7 +198,10 @@ class _SendScreenState extends State<SendScreen> {
                             width: 10,
                             height: 10,
                             margin: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: AppColors.ink, width: 3)),
+                            decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: AppColors.ink, width: 3)),
                           ),
                           const SizedBox(width: 13),
                           Expanded(
@@ -226,7 +216,8 @@ class _SendScreenState extends State<SendScreen> {
                               onSuggestionSelected: (suggestion) {
                                 flow.setDetails(
                                   pickupAddress: suggestion.address,
-                                  pickupLocation: _suggestionLocation(suggestion),
+                                  pickupLocation:
+                                      _suggestionLocation(suggestion),
                                 );
                               },
                             ),
@@ -243,7 +234,9 @@ class _SendScreenState extends State<SendScreen> {
                             width: 10,
                             height: 10,
                             margin: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
+                            decoration: const BoxDecoration(
+                                color: AppColors.accent,
+                                shape: BoxShape.circle),
                           ),
                           const SizedBox(width: 13),
                           Expanded(
@@ -258,19 +251,26 @@ class _SendScreenState extends State<SendScreen> {
                               onSuggestionSelected: (suggestion) {
                                 flow.setDetails(
                                   dropoffAddress: suggestion.address,
-                                  dropoffLocation: _suggestionLocation(suggestion),
+                                  dropoffLocation:
+                                      _suggestionLocation(suggestion),
                                 );
                               },
                             ),
                           ),
-                          const Icon(Icons.edit_location_alt_outlined, color: AppColors.faint),
+                          const Icon(Icons.edit_location_alt_outlined,
+                              color: AppColors.faint),
                         ],
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 22),
-                const Text('What are you sending?', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
+                const Text('What are you sending?',
+                    style: TextStyle(
+                        fontFamily: 'SpaceGrotesk',
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        color: AppColors.ink)),
                 const SizedBox(height: 12),
                 GridView.count(
                   crossAxisCount: 3,
@@ -288,14 +288,26 @@ class _SendScreenState extends State<SendScreen> {
                         decoration: BoxDecoration(
                           color: selected ? AppColors.ink : Colors.white,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: selected ? AppColors.ink : AppColors.border, width: 1.5),
+                          border: Border.all(
+                              color:
+                                  selected ? AppColors.ink : AppColors.border,
+                              width: 1.5),
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(c.$3, color: selected ? AppColors.accent : AppColors.ink, size: 24),
+                            Icon(c.$3,
+                                color:
+                                    selected ? AppColors.accent : AppColors.ink,
+                                size: 24),
                             const SizedBox(height: 8),
-                            Text(c.$2, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: selected ? Colors.white : AppColors.ink)),
+                            Text(c.$2,
+                                style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: selected
+                                        ? Colors.white
+                                        : AppColors.ink)),
                           ],
                         ),
                       ),
@@ -305,10 +317,13 @@ class _SendScreenState extends State<SendScreen> {
                 const SizedBox(height: 12),
                 const Text(
                   "Add a product description & photos so deliverers know what they're carrying.",
-                  style: TextStyle(fontSize: 12.5, color: AppColors.muted, height: 1.5),
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.muted, height: 1.5),
                 ),
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 12,
                   children: [
                     ...List.generate(
                       flow.parcelPhotos.length,
@@ -328,43 +343,61 @@ class _SendScreenState extends State<SendScreen> {
                 ),
                 if (flow.isP2P) ...[
                   const SizedBox(height: 24),
-                  const Text('Set your offer', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
+                  const Text('Set your offer',
+                      style: TextStyle(
+                          fontFamily: 'SpaceGrotesk',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: AppColors.ink)),
                   const SizedBox(height: 6),
                   const Text(
                     "Name what you'll pay a deliverer. It's held in escrow the moment a peer accepts.",
-                    style: TextStyle(fontSize: 12.5, color: AppColors.muted, height: 1.5),
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.muted, height: 1.5),
                   ),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(22)),
+                    decoration: BoxDecoration(
+                        color: AppColors.ink,
+                        borderRadius: BorderRadius.circular(22)),
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        Positioned(
-                          right: -30,
-                          top: -30,
-                          child: Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(color: AppColors.accent.withValues(alpha: 0.14), shape: BoxShape.circle),
-                          ),
-                        ),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("YOU'RE OFFERING", style: TextStyle(fontSize: 12, color: Color(0xFF8A93A2), fontWeight: FontWeight.w600)),
+                            const Text("YOU'RE OFFERING",
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF8A93A2),
+                                    fontWeight: FontWeight.w600)),
                             const SizedBox(height: 6),
                             Text.rich(
                               TextSpan(
                                 children: [
-                                  const TextSpan(text: '₦', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w700, fontSize: 34, color: Colors.white)),
-                                  TextSpan(text: flow.offer.toStringAsFixed(0), style: const TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w700, fontSize: 40, color: Colors.white, letterSpacing: -0.4)),
+                                  const TextSpan(
+                                      text: '₦',
+                                      style: TextStyle(
+                                          fontFamily: 'SpaceGrotesk',
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 34,
+                                          color: Colors.white)),
+                                  TextSpan(
+                                      text: flow.offer.toStringAsFixed(0),
+                                      style: const TextStyle(
+                                          fontFamily: 'SpaceGrotesk',
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 40,
+                                          color: Colors.white,
+                                          letterSpacing: 0)),
                                 ],
                               ),
                             ),
                             const SizedBox(height: 16),
-                            Row(
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
                               children: [500.0, 1000.0, 2000.0].map((delta) {
                                 return Padding(
                                   padding: const EdgeInsets.only(right: 8),
@@ -372,12 +405,21 @@ class _SendScreenState extends State<SendScreen> {
                                     onPressed: () => flow.adjustOffer(delta),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: Colors.white,
-                                      side: BorderSide(color: Colors.white.withValues(alpha: 0.16)),
-                                      backgroundColor: Colors.white.withValues(alpha: 0.06),
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      side: BorderSide(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.16)),
+                                      backgroundColor:
+                                          Colors.white.withValues(alpha: 0.06),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 8),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(10)),
                                     ),
-                                    child: Text('+₦${delta.toStringAsFixed(0)}', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                    child: Text('+₦${delta.toStringAsFixed(0)}',
+                                        style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600)),
                                   ),
                                 );
                               }).toList(),
@@ -388,18 +430,26 @@ class _SendScreenState extends State<SendScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  const Text('Choose your deliverer', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
+                  const Text('Choose your deliverer',
+                      style: TextStyle(
+                          fontFamily: 'SpaceGrotesk',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: AppColors.ink)),
                   const SizedBox(height: 6),
                   const Text(
                     'Pick a specific peer, or leave it open for any nearby deliverer to accept.',
-                    style: TextStyle(fontSize: 12.5, color: AppColors.muted, height: 1.5),
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.muted, height: 1.5),
                   ),
                   const SizedBox(height: 12),
                   InkWell(
                     borderRadius: BorderRadius.circular(18),
-                    onTap: () => Navigator.pushNamed(context, '/pick-deliverer'),
+                    onTap: () =>
+                        Navigator.pushNamed(context, '/pick-deliverer'),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 15),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(18),
@@ -410,17 +460,26 @@ class _SendScreenState extends State<SendScreen> {
                           Container(
                             width: 44,
                             height: 44,
-                            decoration: BoxDecoration(color: AppColors.tint['lime'], borderRadius: BorderRadius.circular(13)),
-                            child: const Icon(Icons.person_outline, color: AppColors.ink, size: 21),
+                            decoration: BoxDecoration(
+                                color: AppColors.tint['lime'],
+                                borderRadius: BorderRadius.circular(13)),
+                            child: const Icon(Icons.person_outline,
+                                color: AppColors.ink, size: 21),
                           ),
                           const SizedBox(width: 13),
                           const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Browse deliverers', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                                Text('Browse deliverers',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15)),
                                 SizedBox(height: 2),
-                                Text('Search & filter available peers', style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                                Text('Search & filter available peers',
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: AppColors.muted)),
                               ],
                             ),
                           ),
@@ -431,7 +490,12 @@ class _SendScreenState extends State<SendScreen> {
                   ),
                 ] else ...[
                   const SizedBox(height: 24),
-                  const Text('Delivery speed', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
+                  const Text('Delivery speed',
+                      style: TextStyle(
+                          fontFamily: 'SpaceGrotesk',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: AppColors.ink)),
                   const SizedBox(height: 12),
                   ...List.generate(2, (i) {
                     final selected = flow.speedIndex == i;
@@ -441,47 +505,81 @@ class _SendScreenState extends State<SendScreen> {
                         borderRadius: BorderRadius.circular(18),
                         onTap: () => flow.setSpeedIndex(i),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 15),
                           decoration: BoxDecoration(
-                            color: selected ? AppColors.tint['lime'] : Colors.white,
+                            color: selected
+                                ? AppColors.tint['lime']
+                                : Colors.white,
                             borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: selected ? AppColors.ink : AppColors.border, width: 1.5),
+                            border: Border.all(
+                                color:
+                                    selected ? AppColors.ink : AppColors.border,
+                                width: 1.5),
                           ),
                           child: Row(
                             children: [
                               Container(
                                 width: 44,
                                 height: 44,
-                                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(13)),
-                                child: Icon(i == 0 ? Icons.schedule_outlined : Icons.bolt_outlined, color: AppColors.ink, size: 22),
+                                decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(13)),
+                                child: Icon(
+                                    i == 0
+                                        ? Icons.schedule_outlined
+                                        : Icons.bolt_outlined,
+                                    color: AppColors.ink,
+                                    size: 22),
                               ),
                               const SizedBox(width: 13),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(SendFlowProvider.expressSpeedLabels[i], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                                    Text(SendFlowProvider.expressSpeedLabels[i],
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15)),
                                     const SizedBox(height: 2),
-                                    Text(i == 0 ? 'Arrives within 60–90 min' : 'Priority pickup · under 30 min',
-                                        style: const TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                                    Text(
+                                        i == 0
+                                            ? 'Arrives within 60–90 min'
+                                            : 'Priority pickup · under 30 min',
+                                        style: const TextStyle(
+                                            fontSize: 12.5,
+                                            color: AppColors.muted)),
                                   ],
                                 ),
                               ),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  Text('₦${SendFlowProvider.expressSpeedPrices[i].toStringAsFixed(0)}',
-                                      style: const TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w700, fontSize: 15)),
+                                  Text(
+                                      '₦${SendFlowProvider.expressSpeedPrices[i].toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                          fontFamily: 'SpaceGrotesk',
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 15)),
                                   const SizedBox(height: 5),
                                   Container(
                                     width: 20,
                                     height: 20,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: selected ? AppColors.ink : AppColors.faint, width: 2),
-                                      color: selected ? AppColors.ink : Colors.transparent,
+                                      border: Border.all(
+                                          color: selected
+                                              ? AppColors.ink
+                                              : AppColors.faint,
+                                          width: 2),
+                                      color: selected
+                                          ? AppColors.ink
+                                          : Colors.transparent,
                                     ),
-                                    child: selected ? const Icon(Icons.check, size: 12, color: Colors.white) : null,
+                                    child: selected
+                                        ? const Icon(Icons.check,
+                                            size: 12, color: Colors.white)
+                                        : null,
                                   ),
                                 ],
                               ),
@@ -493,7 +591,12 @@ class _SendScreenState extends State<SendScreen> {
                   }),
                 ],
                 const SizedBox(height: 24),
-                const Text('Delivery terms', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
+                const Text('Delivery terms',
+                    style: TextStyle(
+                        fontFamily: 'SpaceGrotesk',
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        color: AppColors.ink)),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(18),
@@ -504,9 +607,21 @@ class _SendScreenState extends State<SendScreen> {
                   ),
                   child: Column(
                     children: [
-                      const _TermRow(n: '1', title: 'Escrow protection', body: 'Your payment is held safely until you confirm delivery.'),
-                      const _TermRow(n: '2', title: 'Verified deliverers', body: 'Every peer is ID-checked before they can accept jobs.'),
-                      const _TermRow(n: '3', title: 'Live tracking', body: "Follow your parcel's journey from pickup to your door."),
+                      const _TermRow(
+                          n: '1',
+                          title: 'Escrow protection',
+                          body:
+                              'Your payment is held safely until you confirm delivery.'),
+                      const _TermRow(
+                          n: '2',
+                          title: 'Verified deliverers',
+                          body:
+                              'Every peer is ID-checked before they can accept jobs.'),
+                      const _TermRow(
+                          n: '3',
+                          title: 'Live tracking',
+                          body:
+                              "Follow your parcel's journey from pickup to your door."),
                       Row(
                         children: [
                           GestureDetector(
@@ -515,17 +630,27 @@ class _SendScreenState extends State<SendScreen> {
                               width: 22,
                               height: 22,
                               decoration: BoxDecoration(
-                                color: flow.termsAgreed ? AppColors.accent : Colors.white,
+                                color: flow.termsAgreed
+                                    ? AppColors.accent
+                                    : Colors.white,
                                 borderRadius: BorderRadius.circular(7),
-                                border: flow.termsAgreed ? null : Border.all(color: AppColors.border, width: 1.5),
+                                border: flow.termsAgreed
+                                    ? null
+                                    : Border.all(
+                                        color: AppColors.border, width: 1.5),
                               ),
-                              child: flow.termsAgreed ? const Icon(Icons.check, size: 14, color: AppColors.ink) : null,
+                              child: flow.termsAgreed
+                                  ? const Icon(Icons.check,
+                                      size: 14, color: AppColors.ink)
+                                  : null,
                             ),
                           ),
                           const SizedBox(width: 9),
                           const Expanded(
-                            child: Text("I've verified the item, address & recipient contact.",
-                                style: TextStyle(fontSize: 12.5, color: AppColors.inkSoft)),
+                            child: Text(
+                                "I've verified the item, address & recipient contact.",
+                                style: TextStyle(
+                                    fontSize: 12.5, color: AppColors.inkSoft)),
                           ),
                         ],
                       ),
@@ -541,54 +666,56 @@ class _SendScreenState extends State<SendScreen> {
             bottom: 0,
             child: Container(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: [Colors.white.withValues(alpha: 0.98), Colors.white.withValues(alpha: 0.98), Colors.white.withValues(alpha: 0)],
-                  stops: const [0, 0.68, 1],
-                ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
               ),
               child: SizedBox(
                 height: 56,
                 child: ElevatedButton(
                   onPressed: !flow.termsAgreed
                       ? null
-                      : () async {
-                          if (flow.isP2P) {
-                            Navigator.pushNamed(context, '/pick-deliverer');
-                          } else {
-                            final auth = context.read<AuthProvider>();
-                            if (auth.profile == null) return;
-                            try {
-                              await flow.submitOrder(auth.profile!);
-                              if (context.mounted) Navigator.pushNamed(context, '/send-done');
-                            } catch (error) {
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(error.toString())),
-                              );
-                            }
+                      : () {
+                          if (flow.pickupAddress.trim().isEmpty ||
+                              flow.dropoffAddress.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text(
+                                        'Enter pickup and destination addresses.')));
+                            return;
                           }
+                          Navigator.pushNamed(
+                              context,
+                              flow.isP2P
+                                  ? '/pick-deliverer'
+                                  : '/confirm-order');
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.ink,
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: AppColors.ink.withValues(alpha: 0.35),
+                    disabledBackgroundColor:
+                        AppColors.ink.withValues(alpha: 0.35),
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(flow.isP2P ? 'Choose a deliverer' : 'Continue', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                      Expanded(
+                          child: Text(
+                              flow.isP2P ? 'Choose a deliverer' : 'Continue',
+                              maxLines: 2,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 14))),
+                      const SizedBox(width: 8),
                       Row(
                         children: [
                           Text(
                             flow.isP2P
                                 ? '₦${flow.offer.toStringAsFixed(0)}'
                                 : '₦${SendFlowProvider.expressSpeedPrices[flow.speedIndex].toStringAsFixed(0)}',
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 15),
                           ),
                           const SizedBox(width: 7),
                           const Icon(Icons.arrow_forward, size: 18),
@@ -618,7 +745,11 @@ class _ModeTab extends StatelessWidget {
   final String sub;
   final bool selected;
   final VoidCallback onTap;
-  const _ModeTab({required this.label, required this.sub, required this.selected, required this.onTap});
+  const _ModeTab(
+      {required this.label,
+      required this.sub,
+      required this.selected,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -630,13 +761,28 @@ class _ModeTab extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: selected ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2))] : null,
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2))
+                ]
+              : null,
         ),
         child: Column(
           children: [
-            Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: selected ? AppColors.ink : AppColors.inkSoft)),
+            Text(label,
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    color: selected ? AppColors.ink : AppColors.inkSoft)),
             const SizedBox(height: 2),
-            Text(sub, style: TextStyle(fontSize: 10.5, color: selected ? AppColors.muted : AppColors.faint), textAlign: TextAlign.center),
+            Text(sub,
+                style: TextStyle(
+                    fontSize: 10.5,
+                    color: selected ? AppColors.muted : AppColors.faint),
+                textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -714,7 +860,8 @@ class _AddressFieldState extends State<_AddressField> {
   Future<void> _loadSuggestions(String query) async {
     final currentRequest = ++_requestId;
     setState(() => _loading = true);
-    final suggestions = await context.read<LocalDataService>().searchAddresses(query);
+    final suggestions =
+        await context.read<LocalDataService>().searchAddresses(query);
     if (!mounted || currentRequest != _requestId) return;
     setState(() {
       _suggestions = suggestions;
@@ -723,7 +870,8 @@ class _AddressFieldState extends State<_AddressField> {
   }
 
   void _selectSuggestion(AddressSuggestion suggestion) {
-    final value = suggestion.address.isEmpty ? suggestion.name : suggestion.address;
+    final value =
+        suggestion.address.isEmpty ? suggestion.name : suggestion.address;
     _debounce?.cancel();
     _controller.text = value;
     _controller.selection = TextSelection.collapsed(offset: value.length);
@@ -808,7 +956,8 @@ class _AddressFieldState extends State<_AddressField> {
                         SizedBox(width: 10),
                         Text(
                           'Searching addresses...',
-                          style: TextStyle(fontSize: 12.5, color: AppColors.muted),
+                          style:
+                              TextStyle(fontSize: 12.5, color: AppColors.muted),
                         ),
                       ],
                     ),
@@ -861,7 +1010,7 @@ class _AddressFieldState extends State<_AddressField> {
   }
 }
 
-enum _PictureSource { gallery, camera, sample }
+enum _PictureSource { gallery, camera }
 
 class _PictureSourceTile extends StatelessWidget {
   final IconData icon;
@@ -1011,17 +1160,30 @@ class _TermRow extends StatelessWidget {
             width: 24,
             height: 24,
             alignment: Alignment.center,
-            decoration: BoxDecoration(color: AppColors.tint['lime'], borderRadius: BorderRadius.circular(8)),
-            child: Text(n, style: const TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.ink)),
+            decoration: BoxDecoration(
+                color: AppColors.tint['lime'],
+                borderRadius: BorderRadius.circular(8)),
+            child: Text(n,
+                style: const TextStyle(
+                    fontFamily: 'SpaceGrotesk',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: AppColors.ink)),
           ),
           const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5, color: AppColors.ink)),
+                Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13.5,
+                        color: AppColors.ink)),
                 const SizedBox(height: 2),
-                Text(body, style: const TextStyle(fontSize: 12.5, color: AppColors.muted, height: 1.45)),
+                Text(body,
+                    style: const TextStyle(
+                        fontSize: 12.5, color: AppColors.muted, height: 1.45)),
               ],
             ),
           ),

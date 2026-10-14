@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: movetraq-production-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: AUTH_REDIRECT_URL
+        sync: false
+      - key: PAYMENT_PROVIDER
+        value: paystack
+      - key: PAYMENT_SECRET_KEY
+        sync: false
+      - key: PAYMENT_CALLBACK_URL
+        sync: false

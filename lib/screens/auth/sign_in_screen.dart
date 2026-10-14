@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mini_map.dart';
+import '../../widgets/movetraq_brand.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/auth_social_buttons.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -28,8 +30,11 @@ class _SignInScreenState extends State<SignInScreen> {
 
   Future<void> _submit(AuthProvider auth) async {
     if (!_formKey.currentState!.validate()) return;
-    final ok = await auth.signIn(emailOrPhone: _emailCtrl.text.trim(), password: _passwordCtrl.text);
-    if (ok && mounted) Navigator.of(context).pushNamedAndRemoveUntil('/home', (r) => false);
+    final ok = await auth.signIn(
+        emailOrPhone: _emailCtrl.text.trim(), password: _passwordCtrl.text);
+    if (ok && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/home', (r) => false);
+    }
   }
 
   Future<void> _showResetPassword(AuthProvider auth) async {
@@ -57,7 +62,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   emailOrPhone: loginCtrl.text.trim(),
                   newPassword: newPasswordCtrl.text,
                 );
-                if (!mounted) return;
+                if (!dialogContext.mounted) return;
                 if (ok) {
                   Navigator.of(dialogContext).pop(true);
                   return;
@@ -79,7 +84,10 @@ class _SignInScreenState extends State<SignInScreen> {
                       children: [
                         const Text(
                           'Enter your account email or phone and choose a new password.',
-                          style: TextStyle(fontSize: 13.5, height: 1.4, color: AppColors.inkSoft),
+                          style: TextStyle(
+                              fontSize: 13.5,
+                              height: 1.4,
+                              color: AppColors.inkSoft),
                         ),
                         const SizedBox(height: 18),
                         TextFormField(
@@ -89,7 +97,10 @@ class _SignInScreenState extends State<SignInScreen> {
                             labelText: 'Email or phone',
                             prefixIcon: Icon(Icons.person_outline),
                           ),
-                          validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
+                          validator: (value) =>
+                              (value == null || value.trim().isEmpty)
+                                  ? 'Required'
+                                  : null,
                         ),
                         const SizedBox(height: 14),
                         TextFormField(
@@ -99,14 +110,21 @@ class _SignInScreenState extends State<SignInScreen> {
                             labelText: 'New password',
                             prefixIcon: const Icon(Icons.lock_reset_outlined),
                             suffixIcon: TextButton(
-                              onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
+                              onPressed: () => setDialogState(
+                                  () => obscurePassword = !obscurePassword),
                               child: Text(
                                 obscurePassword ? 'Show' : 'Hide',
-                                style: const TextStyle(color: AppColors.inkSoft, fontSize: 12.5, fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                    color: AppColors.inkSoft,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600),
                               ),
                             ),
                           ),
-                          validator: (value) => (value == null || value.length < 6) ? 'Min 6 characters' : null,
+                          validator: (value) =>
+                              (value == null || value.length < 6)
+                                  ? 'Min 6 characters'
+                                  : null,
                         ),
                         const SizedBox(height: 14),
                         TextFormField(
@@ -116,11 +134,15 @@ class _SignInScreenState extends State<SignInScreen> {
                             labelText: 'Confirm password',
                             prefixIcon: Icon(Icons.verified_user_outlined),
                           ),
-                          validator: (value) => value != newPasswordCtrl.text ? 'Passwords do not match' : null,
+                          validator: (value) => value != newPasswordCtrl.text
+                              ? 'Passwords do not match'
+                              : null,
                         ),
                         if (dialogError != null) ...[
                           const SizedBox(height: 12),
-                          Text(dialogError!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                          Text(dialogError!,
+                              style: const TextStyle(
+                                  color: AppColors.danger, fontSize: 13)),
                         ],
                       ],
                     ),
@@ -128,7 +150,9 @@ class _SignInScreenState extends State<SignInScreen> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: resetting ? null : () => Navigator.of(dialogContext).pop(false),
+                    onPressed: resetting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(false),
                     child: const Text('Cancel'),
                   ),
                   SizedBox(
@@ -150,7 +174,8 @@ class _SignInScreenState extends State<SignInScreen> {
       if (didReset == true && mounted) {
         _passwordCtrl.clear();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password reset. Sign in with your new password.')),
+          const SnackBar(
+              content: Text('Password reset. Sign in with your new password.')),
         );
       }
     } finally {
@@ -164,107 +189,132 @@ class _SignInScreenState extends State<SignInScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     return Scaffold(
+      backgroundColor: AppColors.authBg,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(26, 20, 26, 32),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleIconButton(icon: Icons.arrow_back, onTap: () => Navigator.maybePop(context)),
-                const SizedBox(height: 30),
-                Text('Welcome back.', style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 32)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    CircleIconButton(
+                        icon: Icons.chevron_left,
+                        onTap: () => Navigator.maybePop(context)),
+                    const MoveTraqMark(size: 34),
+                  ],
+                ),
+                const SizedBox(height: 28),
+                const Text(
+                  'WELCOME BACK',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
+                    color: Color(0xFF79913B),
+                  ),
+                ),
                 const SizedBox(height: 12),
-                const Text('Sign in to keep moving your parcels across the city.',
-                    style: TextStyle(fontSize: 15, height: 1.5, color: AppColors.inkSoft)),
+                Text('Welcome back.',
+                    style: Theme.of(context)
+                        .textTheme
+                        .displayLarge
+                        ?.copyWith(fontSize: 30, height: 1.15)),
+                const SizedBox(height: 42),
+                const Text(
+                    'Sign in to manage your deliveries, messages and payments.',
+                    style: TextStyle(
+                        fontSize: 13, height: 1.6, color: AppColors.muted)),
                 const SizedBox(height: 30),
-                const Text('Email or phone', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.inkSoft)),
+                const Text('Email or phone',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.inkSoft)),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(prefixIcon: Icon(Icons.person_outline)),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  decoration: const InputDecoration(
+                      hintText: 'you@example.com',
+                      prefixIcon: Icon(Icons.mail_outline, size: 18)),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
                 const SizedBox(height: 18),
-                const Text('Password', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.inkSoft)),
+                const Text('Password',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.inkSoft)),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _passwordCtrl,
                   obscureText: _obscure,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.shield_outlined),
-                    suffixIcon: TextButton(
+                    suffixIcon: IconButton(
+                      tooltip: _obscure ? 'Show password' : 'Hide password',
                       onPressed: () => setState(() => _obscure = !_obscure),
-                      child: Text(_obscure ? 'Show' : 'Hide', style: const TextStyle(color: AppColors.inkSoft, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      icon: Icon(
+                          _obscure
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 19),
                     ),
                   ),
-                  validator: (v) => (v == null || v.length < 6) ? 'Min 6 characters' : null,
+                  validator: (v) =>
+                      (v == null || v.length < 6) ? 'Min 6 characters' : null,
                 ),
                 Align(
                   alignment: Alignment.centerRight,
                   child: Padding(
                     padding: const EdgeInsets.only(top: 14),
                     child: TextButton(
-                      onPressed: auth.isBusy ? null : () => _showResetPassword(auth),
-                      style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                      child: const Text('Forgot password?', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                      onPressed:
+                          auth.isBusy ? null : () => _showResetPassword(auth),
+                      style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                      child: const Text('Forgot password?',
+                          style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ink)),
                     ),
                   ),
                 ),
                 if (auth.errorMessage != null) ...[
                   const SizedBox(height: 10),
-                  Text(auth.errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                  Text(auth.errorMessage!,
+                      style: const TextStyle(
+                          color: AppColors.danger, fontSize: 13)),
                 ],
                 const SizedBox(height: 20),
                 PrimaryButton(
                   label: 'Sign in',
-                  trailingIcon: Icons.arrow_forward,
                   loading: auth.isBusy,
                   onPressed: () => _submit(auth),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 22),
-                  child: Row(children: const [
-                    Expanded(child: Divider()),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('or continue with', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                    ),
-                    Expanded(child: Divider()),
-                  ]),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SecondaryButton(
-                        label: 'Google',
-                        height: 50,
-                        fontSize: 14,
-                        radius: 14,
-                        onPressed: () => _submit(auth),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: SecondaryButton(
-                        label: 'Apple',
-                        height: 50,
-                        fontSize: 14,
-                        radius: 14,
-                        onPressed: () => _submit(auth),
-                      ),
-                    ),
-                  ],
-                ),
+                const AuthSocialButtons(),
                 const SizedBox(height: 24),
                 Center(
                   child: Wrap(children: [
-                    const Text('New to MoveTraq? ', style: TextStyle(fontSize: 14, color: AppColors.inkSoft)),
+                    const Text('New to MoveTraq? ',
+                        style:
+                            TextStyle(fontSize: 14, color: AppColors.inkSoft)),
                     GestureDetector(
-                      onTap: () => Navigator.pushReplacementNamed(context, '/create'),
-                      child: const Text('Create account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                      onTap: () =>
+                          Navigator.pushReplacementNamed(context, '/create'),
+                      child: const Text('Create account',
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink)),
                     ),
                   ]),
                 ),

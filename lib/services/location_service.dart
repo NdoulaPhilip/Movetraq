@@ -37,8 +37,8 @@ class LocationService {
     final Position position =
         await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 3,
       ),
     );
 
@@ -62,8 +62,8 @@ class LocationService {
     await ensurePermission();
 
     const LocationSettings settings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 3,
     );
 
     yield* Geolocator.getPositionStream(

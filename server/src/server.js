@@ -31,6 +31,12 @@ const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 const nodeEnv = process.env.NODE_ENV || 'development';
 const isProduction = nodeEnv === 'production';
 const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7);
+const googleMapsApiKey =
+  process.env.GOOGLE_PLACES_API_KEY ||
+  process.env.GOOGLE_GEOCODING_API_KEY ||
+  process.env.GOOGLE_MAPS_API_KEY ||
+  process.env.GOOGLE_API_KEY ||
+  '';
 const allowedOrigins = String(process.env.CORS_ORIGINS || '*')
   .split(',')
   .map((origin) => origin.trim())
@@ -42,6 +48,9 @@ const orders = new Map();
 const messages = new Map();
 const walletTransactions = new Map();
 const notifications = new Map();
+const savedAddresses = new Map();
+const securitySettings = new Map();
+const supportTickets = new Map();
 let pgPool = null;
 let usePostgres = false;
 const rateLimitBuckets = new Map();
@@ -90,6 +99,21 @@ async function connectPostgres() {
       data JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS saved_addresses (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS security_settings (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      user_id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
   usePostgres = true;
   console.log('MoveTraq API connected to PostgreSQL');
@@ -105,6 +129,9 @@ async function loadStore() {
     messageRows,
     walletRows,
     notificationRows,
+    addressRows,
+    securityRows,
+    supportRows,
   ] = await Promise.all([
     pgPool.query('SELECT uid, data FROM users'),
     pgPool.query('SELECT email, password_hash FROM credentials'),
@@ -112,6 +139,9 @@ async function loadStore() {
     pgPool.query('SELECT order_id, data FROM order_messages'),
     pgPool.query('SELECT user_id, data FROM wallet_transactions'),
     pgPool.query('SELECT user_id, data FROM notifications'),
+    pgPool.query('SELECT user_id, data FROM saved_addresses'),
+    pgPool.query('SELECT user_id, data FROM security_settings'),
+    pgPool.query('SELECT user_id, data FROM support_tickets'),
   ]);
 
   for (const row of userRows.rows) users.set(row.uid, row.data);
@@ -120,6 +150,9 @@ async function loadStore() {
   for (const row of messageRows.rows) messages.set(row.order_id, row.data);
   for (const row of walletRows.rows) walletTransactions.set(row.user_id, row.data);
   for (const row of notificationRows.rows) notifications.set(row.user_id, row.data);
+  for (const row of addressRows.rows) savedAddresses.set(row.user_id, row.data);
+  for (const row of securityRows.rows) securitySettings.set(row.user_id, row.data);
+  for (const row of supportRows.rows) supportTickets.set(row.user_id, row.data);
 
   if (users.size === 0) {
     const legacy = await pgPool.query(`
@@ -137,6 +170,9 @@ async function loadStore() {
       for (const [key, item] of Object.entries(store.messages || {})) messages.set(key, item);
       for (const [key, item] of Object.entries(store.walletTransactions || {})) walletTransactions.set(key, item);
       for (const [key, item] of Object.entries(store.notifications || {})) notifications.set(key, item);
+      for (const [key, item] of Object.entries(store.savedAddresses || {})) savedAddresses.set(key, item);
+      for (const [key, item] of Object.entries(store.securitySettings || {})) securitySettings.set(key, item);
+      for (const [key, item] of Object.entries(store.supportTickets || {})) supportTickets.set(key, item);
       await saveStore();
       console.log('MoveTraq API migrated legacy app_state data to PostgreSQL tables');
     }
@@ -180,6 +216,9 @@ async function saveStore() {
     await upsertJsonMap(client, 'order_messages', 'order_id', messages);
     await upsertJsonMap(client, 'wallet_transactions', 'user_id', walletTransactions);
     await upsertJsonMap(client, 'notifications', 'user_id', notifications);
+    await upsertJsonMap(client, 'saved_addresses', 'user_id', savedAddresses);
+    await upsertJsonMap(client, 'security_settings', 'user_id', securitySettings);
+    await upsertJsonMap(client, 'support_tickets', 'user_id', supportTickets);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -340,8 +379,6 @@ function readBody(req) {
 }
 
 function visibleOrders(user) {
-  simulateActiveLocations();
-
   return [...orders.values()]
     .filter((order) => {
       if (order.senderId === user.uid || order.delivererId === user.uid) {
@@ -353,30 +390,6 @@ function visibleOrders(user) {
       return order.status === 'pendingOffer';
     })
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
-function simulateActiveLocations() {
-  const baseLat = 6.5244;
-  const baseLng = 3.3792;
-  const tick = Date.now() / 30000;
-
-  for (const order of orders.values()) {
-    if (!['accepted', 'pickedUp'].includes(order.status)) continue;
-
-    const seed = order.id
-      .split('')
-      .reduce((sum, char) => sum + char.charCodeAt(0), 0);
-    const radius = order.status === 'pickedUp' ? 0.012 : 0.007;
-    const angle = tick + seed;
-
-    if (order.courierLocation && order.simulatedLocation === false) continue;
-
-    order.courierLocation = {
-      latitude: baseLat + Math.sin(angle) * radius,
-      longitude: baseLng + Math.cos(angle) * radius,
-    };
-    order.simulatedLocation = true;
-  }
 }
 
 function orderCode() {
@@ -426,6 +439,14 @@ function addNotification(userId, item) {
   return list;
 }
 
+function publicSecuritySettings(userId) {
+  const settings = securitySettings.get(userId) || {};
+  return {
+    biometricsEnabled: Boolean(settings.biometricsEnabled),
+    pinEnabled: Boolean(settings.pinHash),
+  };
+}
+
 function addDeliveryEvent(order, type, actorId, note) {
   const list = Array.isArray(order.deliveryEvents) ? order.deliveryEvents : [];
   list.push({
@@ -453,6 +474,59 @@ function readLocation(body) {
     longitude,
     updatedAt: now(),
   };
+}
+
+function readOptionalLocation(value) {
+  if (!value || typeof value !== 'object') return null;
+  const latitude = Number(value.latitude);
+  const longitude = Number(value.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return null;
+  }
+  return { latitude, longitude };
+}
+
+function distanceKm(from, to) {
+  if (!from || !to) return null;
+  const lat1 = Number(from.latitude);
+  const lon1 = Number(from.longitude);
+  const lat2 = Number(to.latitude);
+  const lon2 = Number(to.longitude);
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
+
+  const radiusKm = 6371;
+  const toRadians = (degrees) => degrees * Math.PI / 180;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+  return 2 * radiusKm * Math.asin(Math.sqrt(a));
+}
+
+function applyLiveEta(order) {
+  if (!order || !order.courierLocation) return order;
+  const destination =
+    order.status === 'accepted'
+      ? order.pickupLocation || order.dropoffLocation
+      : order.dropoffLocation;
+  const km = distanceKm(order.courierLocation, destination);
+  if (km == null) return order;
+
+  const averageUrbanKmh = Number(process.env.DELIVERY_AVERAGE_KMH || 22);
+  const safeKmh = Number.isFinite(averageUrbanKmh) && averageUrbanKmh > 0
+    ? averageUrbanKmh
+    : 22;
+  const etaMinutes = Math.max(1, Math.ceil((km / safeKmh) * 60));
+  order.etaMinutes = etaMinutes;
+  order.etaUpdatedAt = now();
+  order.etaDistanceKm = Number(km.toFixed(2));
+  return order;
 }
 
 const fallbackPlaces = [
@@ -486,9 +560,138 @@ function localPlaceSuggestions(query, limit = 6) {
     }));
 }
 
+function normalizeGoogleAddress(item) {
+  const location = item.geometry?.location || {};
+  return {
+    id: item.place_id ? `google-${item.place_id}` : `google-${crypto.randomUUID()}`,
+    placeId: item.place_id || '',
+    name:
+      item.name ||
+      item.structured_formatting?.main_text ||
+      item.formatted_address ||
+      item.description ||
+      '',
+    address:
+      item.formatted_address ||
+      item.description ||
+      item.vicinity ||
+      item.name ||
+      '',
+    latitude: Number.isFinite(Number(location.lat)) ? Number(location.lat) : null,
+    longitude: Number.isFinite(Number(location.lng)) ? Number(location.lng) : null,
+    source: 'google',
+  };
+}
+
+async function googlePlaceDetails(placeId) {
+  if (!googleMapsApiKey || !placeId) return null;
+
+  const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
+  url.searchParams.set('place_id', placeId);
+  url.searchParams.set('fields', 'place_id,name,formatted_address,geometry');
+  url.searchParams.set('key', googleMapsApiKey);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!response.ok) return null;
+  const data = await response.json();
+  if (data.status !== 'OK' || !data.result) return null;
+  return normalizeGoogleAddress(data.result);
+}
+
+async function googlePlaceSuggestions(query) {
+  if (!googleMapsApiKey) return [];
+
+  const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
+  url.searchParams.set('input', query);
+  url.searchParams.set('components', 'country:ng');
+  url.searchParams.set('key', googleMapsApiKey);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!response.ok) return [];
+  const data = await response.json();
+  if (!['OK', 'ZERO_RESULTS'].includes(data.status)) return [];
+
+  const predictions = Array.isArray(data.predictions) ? data.predictions : [];
+  const detailed = await Promise.all(
+    predictions.slice(0, 6).map(async (prediction) => {
+      const details = await googlePlaceDetails(prediction.place_id);
+      return details || normalizeGoogleAddress(prediction);
+    }),
+  );
+  return detailed.filter((item) => item.address);
+}
+
+async function geocodeAddress(query) {
+  const trimmed = String(query || '').trim();
+  if (trimmed.length < 2) return null;
+
+  if (googleMapsApiKey) {
+    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+    url.searchParams.set('address', trimmed);
+    url.searchParams.set('components', 'country:NG');
+    url.searchParams.set('key', googleMapsApiKey);
+
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (response.ok) {
+        const data = await response.json();
+        const result = Array.isArray(data.results) ? data.results[0] : null;
+        if (data.status === 'OK' && result) {
+          return normalizeGoogleAddress(result);
+        }
+      }
+    } catch {
+      // Fall through to non-Google/local geocoders.
+    }
+  }
+
+  const local = localPlaceSuggestions(trimmed, 1)[0];
+  if (local) return local;
+
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('countrycodes', 'ng');
+    url.searchParams.set('q', trimmed);
+    const response = await fetch(url, {
+      headers: {
+        'user-agent': 'MoveTraq/1.0 (address geocoding)',
+        accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!response.ok) return null;
+    const items = await response.json();
+    const item = Array.isArray(items) ? items[0] : null;
+    if (!item) return null;
+    return {
+      id: `osm-${item.place_id}`,
+      name: item.name || item.display_name,
+      address: item.display_name,
+      latitude: Number(item.lat),
+      longitude: Number(item.lon),
+      source: 'osm',
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function placeSuggestions(query) {
   const local = localPlaceSuggestions(query);
   if (String(query || '').trim().length < 3) return local;
+
+  try {
+    const google = await googlePlaceSuggestions(query);
+    if (google.length) {
+      return [...google, ...local]
+        .filter((item, index, all) => all.findIndex((other) => other.address === item.address) === index)
+        .slice(0, 6);
+    }
+  } catch {
+    // Fall through to OSM/local suggestions.
+  }
 
   const url = new URL('https://nominatim.openstreetmap.org/search');
   url.searchParams.set('format', 'jsonv2');
@@ -550,6 +753,25 @@ function requireOrderAccess(user, order) {
   );
 }
 
+function homeGreeting() {
+  const timezone = process.env.APP_TIMEZONE || 'Africa/Lagos';
+  let hour = new Date().getHours();
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: timezone,
+    }).formatToParts(new Date());
+    hour = Number(parts.find((part) => part.type === 'hour')?.value ?? hour);
+  } catch {
+    // Keep the server-local hour if the configured timezone is invalid.
+  }
+
+  if (hour < 12) return { greeting: 'Good morning', period: 'morning', hour, timezone };
+  if (hour < 17) return { greeting: 'Good afternoon', period: 'afternoon', hour, timezone };
+  return { greeting: 'Good evening', period: 'evening', hour, timezone };
+}
+
 const server = http.createServer(async (req, res) => {
   res.req = req;
   try {
@@ -573,6 +795,14 @@ const server = http.createServer(async (req, res) => {
       json(res, 200, {
         ok: true,
         database: usePostgres ? 'postgres' : 'memory',
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/home/context') {
+      json(res, 200, {
+        ...homeGreeting(),
+        serverTime: now(),
       });
       return;
     }
@@ -635,25 +865,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && path === '/auth/reset-password') {
       if (!rateLimit(req, res, 'auth:reset-password', 6, 30 * 60 * 1000)) return;
-      const rawLogin = text(body.emailOrPhone, '', 180);
-      const login = rawLogin.toLowerCase();
-      const newPassword = String(body.newPassword || '');
-      if (!login || newPassword.length < 6) {
-        json(res, 400, { error: 'Email or phone and a 6 character password are required.' });
-        return;
-      }
-
-      const user = [...users.values()].find(
-        (item) => item.email.toLowerCase() === login || item.phone === rawLogin,
-      );
-      if (!user) {
-        json(res, 404, { error: 'No MoveTraq account was found for that email or phone.' });
-        return;
-      }
-
-      credentials.set(user.email.toLowerCase(), hashPassword(newPassword));
-      await saveStore();
-      json(res, 200, { ok: true });
+      json(res, 410, { error: 'Password recovery requires email verification. Please contact support until the verified recovery service is connected.' });
       return;
     }
 
@@ -721,6 +933,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && path === '/places/geocode') {
+      const query = String(url.searchParams.get('q') || '').trim();
+      const result = await geocodeAddress(query);
+      if (!result) {
+        json(res, 404, { error: 'Address could not be geocoded.' });
+        return;
+      }
+      json(res, 200, { location: result });
+      return;
+    }
+
     if (req.method === 'GET' && path === '/orders') {
       json(res, 200, { orders: visibleOrders(user) });
       return;
@@ -751,6 +974,10 @@ const server = http.createServer(async (req, res) => {
       const autoAccept = Boolean(body.autoAccept && body.delivererId);
       const delivererId = autoAccept ? String(body.delivererId) : null;
       const delivererName = autoAccept ? String(body.delivererName || '') : null;
+      const pickupAddress = text(body.pickupAddress).trim() || 'Current location';
+      const dropoffAddress = text(body.dropoffAddress).trim() || 'Lekki Phase 1';
+      const pickupLocation = readOptionalLocation(body.pickupLocation);
+      const dropoffLocation = readOptionalLocation(body.dropoffLocation);
 
       const order = {
         ...body,
@@ -758,6 +985,10 @@ const server = http.createServer(async (req, res) => {
         code: orderCode(),
         senderId: user.uid,
         senderName: user.name,
+        pickupAddress,
+        dropoffAddress,
+        pickupLocation,
+        dropoffLocation,
         delivererId,
         delivererName,
         targetDelivererId,
@@ -895,6 +1126,19 @@ const server = http.createServer(async (req, res) => {
         }
         order.courierLocation = location;
         order.simulatedLocation = false;
+        order.courierLocationUpdatedAt = now();
+        const trail = Array.isArray(order.courierLocationTrail)
+          ? order.courierLocationTrail
+          : [];
+        const lastTrailPoint = trail[trail.length - 1];
+        if (
+          !lastTrailPoint ||
+          Number(lastTrailPoint.latitude) !== location.latitude ||
+          Number(lastTrailPoint.longitude) !== location.longitude
+        ) {
+          trail.push({ ...location, updatedAt: order.courierLocationUpdatedAt });
+          order.courierLocationTrail = trail.slice(-120);
+        }
         await saveStore();
         json(res, 200, { order });
         return;
@@ -1029,6 +1273,28 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (req.method === 'GET' && action === 'contact') {
+        if (!requireOrderAccess(user, order)) {
+          json(res, 403, { error: 'You do not have access to this order.' });
+          return;
+        }
+        const otherUserId = user.uid === order.senderId ? order.delivererId : order.senderId;
+        const contact = otherUserId ? users.get(otherUserId) : null;
+        if (!contact) {
+          json(res, 404, { error: 'The other participant is not available yet.' });
+          return;
+        }
+        json(res, 200, {
+          contact: {
+            uid: contact.uid,
+            name: contact.name,
+            phone: contact.phone,
+            activeRole: contact.activeRole,
+          },
+        });
+        return;
+      }
+
       if (action === 'messages') {
         const list = messages.get(order.id) || [];
         if (req.method === 'GET') {
@@ -1139,6 +1405,114 @@ const server = http.createServer(async (req, res) => {
       );
       await saveStore();
       json(res, 201, { user, transactions: list });
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/users/me/addresses') {
+      json(res, 200, { addresses: savedAddresses.get(user.uid) || [] });
+      return;
+    }
+
+    if (req.method === 'POST' && path === '/users/me/addresses') {
+      const label = text(body.label, '', 80);
+      const address = text(body.address, '', 280);
+      if (!label || !address) {
+        json(res, 400, { error: 'Label and address are required.' });
+        return;
+      }
+
+      const list = savedAddresses.get(user.uid) || [];
+      const addressId = text(body.id, '', 80) || id('addr');
+      const existingIndex = list.findIndex((item) => item.id === addressId);
+      const item = {
+        id: addressId,
+        label,
+        address,
+        createdAt: existingIndex === -1 ? now() : list[existingIndex].createdAt,
+      };
+      if (existingIndex === -1) {
+        list.push(item);
+      } else {
+        list[existingIndex] = item;
+      }
+      savedAddresses.set(user.uid, list);
+      await saveStore();
+      json(res, 201, { address: item, addresses: list });
+      return;
+    }
+
+    const addressDeleteMatch = path.match(/^\/users\/me\/addresses\/([^/]+)\/delete$/);
+    if (req.method === 'POST' && addressDeleteMatch) {
+      const list = savedAddresses.get(user.uid) || [];
+      const next = list.filter((item) => item.id !== addressDeleteMatch[1]);
+      savedAddresses.set(user.uid, next);
+      await saveStore();
+      json(res, 200, { addresses: next });
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/users/me/security') {
+      json(res, 200, { settings: publicSecuritySettings(user.uid) });
+      return;
+    }
+
+    if (req.method === 'PATCH' && path === '/users/me/security') {
+      const current = securitySettings.get(user.uid) || {};
+      const next = {
+        ...current,
+        biometricsEnabled: Boolean(body.biometricsEnabled),
+      };
+
+      if (Boolean(body.pinEnabled)) {
+        const pin = String(body.pin || '');
+        if (pin && !/^\d{4,8}$/.test(pin)) {
+          json(res, 400, { error: 'PIN must be 4 to 8 digits.' });
+          return;
+        }
+        if (pin) next.pinHash = hashPassword(pin);
+        if (!next.pinHash) {
+          json(res, 400, { error: 'Enter a PIN to enable PIN security.' });
+          return;
+        }
+      } else {
+        delete next.pinHash;
+      }
+
+      securitySettings.set(user.uid, next);
+      await saveStore();
+      json(res, 200, { settings: publicSecuritySettings(user.uid) });
+      return;
+    }
+
+    if (req.method === 'GET' && path === '/support/tickets') {
+      json(res, 200, { tickets: supportTickets.get(user.uid) || [] });
+      return;
+    }
+
+    if (req.method === 'POST' && path === '/support/tickets') {
+      const subject = text(body.subject, '', 120);
+      const message = text(body.message, '', 1200);
+      if (!subject || !message) {
+        json(res, 400, { error: 'Subject and message are required.' });
+        return;
+      }
+
+      const list = supportTickets.get(user.uid) || [];
+      const ticket = {
+        id: id('ticket'),
+        subject,
+        message,
+        status: 'open',
+        createdAt: now(),
+      };
+      list.push(ticket);
+      supportTickets.set(user.uid, list);
+      addNotification(
+        user.uid,
+        notification('Support request received', `${subject} has been sent to support.`, 'support'),
+      );
+      await saveStore();
+      json(res, 201, { ticket, tickets: list });
       return;
     }
 

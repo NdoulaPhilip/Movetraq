@@ -1,4 +1,6 @@
 import java.util.Base64
+import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -21,16 +23,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
-
     defaultConfig {
         applicationId = "com.example.movetraq"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        val localProperties = Properties().also { properties ->
+            val file = rootProject.file("local.properties")
+            if (file.exists()) {
+                file.inputStream().use(properties::load)
+            }
+        }
+        val googleServicesApiKey = rootProject
+            .file("app/google-services.json")
+            .takeIf { it.exists() }
+            ?.readText()
+            ?.let { Regex("\"current_key\"\\s*:\\s*\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
         val dartDefines = (project.findProperty("dart-defines") as String?)
             ?.split(",")
             ?.mapNotNull { encoded ->
@@ -41,8 +50,10 @@ android {
             ?: emptyMap()
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
             dartDefines["GOOGLE_MAPS_API_KEY"]
+                ?: localProperties.getProperty("GOOGLE_MAPS_API_KEY")
                 ?: (project.findProperty("GOOGLE_MAPS_API_KEY") as String?)
                 ?: System.getenv("GOOGLE_MAPS_API_KEY")
+                ?: googleServicesApiKey
                 ?: ""
     }
 
@@ -51,6 +62,12 @@ android {
             // Using debug signing for now so flutter run --release works.
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
     }
 }
 

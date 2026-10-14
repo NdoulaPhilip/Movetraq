@@ -1,142 +1,192 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 
 import '../models/parcel_order.dart';
 import '../theme/app_theme.dart';
+import 'google_map_status.dart';
+import 'map_geometry.dart';
 
-/// A stylized stand-in "map" card (dark surface + route line + pulsing dot),
-/// matching the original design's `{{ miniMap }}` slot. Swap this out for a
-/// real `google_maps_flutter` / `flutter_map` widget once you add API keys —
-/// everything else (courier location stream) is already wired for it.
 class MiniMap extends StatefulWidget {
   /// Fixed height for the map card. Pass null to fill all available space
   /// (e.g. wrapped in `Positioned.fill` for a full-screen live map).
   final double? height;
-  final bool showPulse;
+  final LatLng? pickupLocation;
+  final LatLng? dropoffLocation;
   final LatLng? courierLocation;
+  final bool courierHeadingToPickup;
   const MiniMap({
     super.key,
     this.height = 150,
-    this.showPulse = true,
+    this.pickupLocation,
+    this.dropoffLocation,
     this.courierLocation,
+    this.courierHeadingToPickup = false,
   });
 
   @override
   State<MiniMap> createState() => _MiniMapState();
 }
 
-class _MiniMapState extends State<MiniMap> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat();
+class _MiniMapState extends State<MiniMap> {
+  maps.GoogleMapController? _controller;
+  double? get height => widget.height;
+  LatLng? get pickupLocation => widget.pickupLocation;
+  LatLng? get dropoffLocation => widget.dropoffLocation;
+  LatLng? get courierLocation => widget.courierLocation;
+  bool get courierHeadingToPickup => widget.courierHeadingToPickup;
+
+  @override
+  void didUpdateWidget(covariant MiniMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pickupLocation != pickupLocation ||
+        oldWidget.dropoffLocation != dropoffLocation ||
+        oldWidget.courierLocation != courierLocation) {
+      _fitCamera();
+    }
+  }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
-  Widget? _buildPulse() {
-    if (!widget.showPulse) return null;
-    final alignment = _markerAlignment(widget.courierLocation);
-    return Align(
-      alignment: alignment,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          final t = _controller.value;
-          return Stack(
-            alignment: Alignment.center,
-            children: [
-              Opacity(
-                opacity: (1 - t).clamp(0, 1),
-                child: Transform.scale(
-                  scale: 1 + t * 1.6,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
-                  ),
-                ),
-              ),
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Alignment _markerAlignment(LatLng? location) {
-    if (location == null) {
-      return const Alignment(0.4, -0.1);
-    }
-
-    const minLat = 6.5000;
-    const maxLat = 6.5500;
-    const minLng = 3.3500;
-    const maxLng = 3.4100;
-    final x = ((location.longitude - minLng) / (maxLng - minLng))
-        .clamp(0.08, 0.92)
-        .toDouble();
-    final y = 1 -
-        ((location.latitude - minLat) / (maxLat - minLat))
-            .clamp(0.08, 0.92)
-            .toDouble();
-
-    return Alignment(x * 2 - 1, y * 2 - 1);
+  void _fitCamera() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _controller == null) return;
+      final points = [
+        mapPoint(pickupLocation),
+        mapPoint(dropoffLocation),
+        mapPoint(courierLocation)
+      ].whereType<maps.LatLng>().toList();
+      if (points.isEmpty) return;
+      _controller!
+          .moveCamera(maps.CameraUpdate.newLatLngBounds(mapBounds(points), 20))
+          .catchError(
+              (Object error) => debugPrint('Map framing unavailable: $error'));
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // CustomPaint.size is non-nullable, so build it with or without an
-    // explicit `size:` argument rather than trying to pass a nullable Size.
-    final content = widget.height == null
-        ? CustomPaint(size: Size.infinite, painter: _RoutePainter(), child: _buildPulse())
-        : CustomPaint(painter: _RoutePainter(), child: _buildPulse());
-    if (widget.height == null) return SizedBox.expand(child: content);
-    return SizedBox(height: widget.height, child: content);
-  }
-}
+    final pickup = _toMapLatLng(pickupLocation);
+    final dropoff = _toMapLatLng(dropoffLocation);
+    final courier = _toMapLatLng(courierLocation);
+    final points = _routePoints(
+      pickup: pickup,
+      dropoff: dropoff,
+      courier: courier,
+      headingToPickup: courierHeadingToPickup,
+    );
 
-class _RoutePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bg = Paint()..color = AppColors.darkSurface;
-    canvas.drawRect(Offset.zero & size, bg);
+    final map = ConfiguredGoogleMap(
+      compact: height != null,
+      map: maps.GoogleMap(
+        onMapCreated: (controller) {
+          _controller = controller;
+          _fitCamera();
+        },
+        initialCameraPosition: maps.CameraPosition(
+          target: _initialTarget(points),
+          zoom: points.length > 1 ? 12.5 : 13.5,
+        ),
+        markers: {
+          if (pickup != null)
+            maps.Marker(
+              markerId: const maps.MarkerId('pickup'),
+              position: pickup,
+              infoWindow: const maps.InfoWindow(title: 'Pickup'),
+            ),
+          if (dropoff != null)
+            maps.Marker(
+              markerId: const maps.MarkerId('dropoff'),
+              position: dropoff,
+              infoWindow: const maps.InfoWindow(title: 'Drop-off'),
+              icon: maps.BitmapDescriptor.defaultMarkerWithHue(
+                maps.BitmapDescriptor.hueAzure,
+              ),
+            ),
+          if (courier != null)
+            maps.Marker(
+              markerId: const maps.MarkerId('courier'),
+              position: courier,
+              infoWindow: const maps.InfoWindow(title: 'Courier'),
+              icon: maps.BitmapDescriptor.defaultMarkerWithHue(
+                maps.BitmapDescriptor.hueGreen,
+              ),
+            ),
+        },
+        polylines: points.length < 2
+            ? const <maps.Polyline>{}
+            : {
+                maps.Polyline(
+                  polylineId: const maps.PolylineId('route'),
+                  points: points,
+                  color: AppColors.accent,
+                  patterns: [
+                    maps.PatternItem.dash(10),
+                    maps.PatternItem.gap(8)
+                  ],
+                  width: 4,
+                ),
+              },
+        liteModeEnabled: true,
+        myLocationButtonEnabled: false,
+        zoomControlsEnabled: false,
+        mapToolbarEnabled: false,
+        compassEnabled: false,
+        scrollGesturesEnabled: false,
+        zoomGesturesEnabled: false,
+        rotateGesturesEnabled: false,
+        tiltGesturesEnabled: false,
+      ),
+    );
 
-    final gridPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.04)
-      ..strokeWidth = 1;
-    for (double x = 0; x < size.width; x += 26) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    if (height == null) {
+      return SizedBox.expand(child: map);
     }
-    for (double y = 0; y < size.height; y += 26) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    final route = Paint()
-      ..color = AppColors.accent
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final path = Path()
-      ..moveTo(size.width * 0.12, size.height * 0.82)
-      ..cubicTo(
-        size.width * 0.4, size.height * 0.82,
-        size.width * 0.35, size.height * 0.25,
-        size.width * 0.68, size.height * 0.28,
-      );
-    canvas.drawPath(path, route);
-
-    final startDot = Paint()..color = Colors.white;
-    canvas.drawCircle(Offset(size.width * 0.12, size.height * 0.82), 5, startDot);
+    return SizedBox(height: height, child: map);
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  static const _lagosCenter = maps.LatLng(6.5244, 3.3792);
+
+  static maps.LatLng? _toMapLatLng(LatLng? value) {
+    return mapPoint(value);
+  }
+
+  static maps.LatLng _initialTarget(List<maps.LatLng> points) {
+    if (points.isEmpty) return _lagosCenter;
+    if (points.length == 1) return points.first;
+
+    final bounds = mapBounds(points);
+    final west = bounds.southwest.longitude;
+    final east = bounds.northeast.longitude;
+    final span = (east - west + 360) % 360;
+    return maps.LatLng(
+        (bounds.southwest.latitude + bounds.northeast.latitude) / 2,
+        ((west + span / 2 + 180) % 360) - 180);
+  }
+
+  static List<maps.LatLng> _routePoints({
+    required maps.LatLng? pickup,
+    required maps.LatLng? dropoff,
+    required maps.LatLng? courier,
+    required bool headingToPickup,
+  }) {
+    if (headingToPickup && courier != null) {
+      return [
+        courier,
+        if (pickup != null) pickup,
+        if (dropoff != null) dropoff,
+      ];
+    }
+
+    return [
+      if (pickup != null) pickup,
+      if (courier != null) courier,
+      if (dropoff != null) dropoff,
+    ];
+  }
 }
 
 /// Circular icon button used repeatedly for back / bell / etc.
@@ -162,7 +212,7 @@ class CircleIconButton extends StatelessWidget {
       color: background,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppColors.borderSoft),
+        side: const BorderSide(color: Color(0xFFE4E8DD)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -204,16 +254,24 @@ class ScreenHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        CircleIconButton(icon: Icons.arrow_back, onTap: () => Navigator.of(context).maybePop()),
-        Expanded(
-          child: Text(title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink)),
-        ),
-        trailing ?? const SizedBox(width: 44),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        CircleIconButton(
+            icon: Icons.chevron_left,
+            onTap: () => Navigator.of(context).maybePop()),
+        const Spacer(),
+        if (trailing != null) trailing!
+      ]),
+      if (title.isNotEmpty) ...[
+        const SizedBox(height: 20),
+        Text(title,
+            style: const TextStyle(
+                fontFamily: 'SpaceGrotesk',
+                fontWeight: FontWeight.w700,
+                fontSize: 24,
+                color: AppColors.ink))
       ],
-    );
+      const SizedBox(height: 18),
+    ]);
   }
 }

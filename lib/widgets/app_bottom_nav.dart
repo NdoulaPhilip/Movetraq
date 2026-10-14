@@ -6,18 +6,22 @@ class NavItem {
   final IconData icon;
   final IconData selectedIcon;
   final String label;
-  const NavItem({required this.icon, required this.selectedIcon, required this.label});
+  const NavItem(
+      {required this.icon, required this.selectedIcon, required this.label});
 }
 
 /// Bottom nav bar matching the design exactly: white bar, top hairline,
-/// selected item gets a filled lime circle behind the icon plus bold lime
-/// label; unselected items are plain gray icon + label.
+/// A compact lime tab identifies the selected destination.
 class AppBottomNav extends StatelessWidget {
   final int currentIndex;
   final List<NavItem> items;
   final ValueChanged<int> onTap;
 
-  const AppBottomNav({super.key, required this.currentIndex, required this.items, required this.onTap});
+  const AppBottomNav(
+      {super.key,
+      required this.currentIndex,
+      required this.items,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -41,27 +45,29 @@ class AppBottomNav extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        width: 34,
-                        height: 34,
+                        width: 46,
+                        height: 30,
                         decoration: BoxDecoration(
-                          color: selected ? AppColors.accent : Colors.transparent,
-                          shape: BoxShape.circle,
+                          color:
+                              selected ? AppColors.accent : Colors.transparent,
+                          borderRadius: BorderRadius.circular(11),
                         ),
                         child: Icon(
                           selected ? item.selectedIcon : item.icon,
                           size: 19,
-                          color: selected ? AppColors.ink : AppColors.faint,
+                          color: selected ? AppColors.ink : AppColors.muted,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        item.label,
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? AppColors.ink : AppColors.faint,
-                        ),
-                      ),
+                      SizedBox(height: 20, child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: FittedBox(fit: BoxFit.scaleDown, child: Text(
+                          item.label, maxLines: 1,
+                          style: TextStyle(fontSize: 10.5,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected ? AppColors.ink : AppColors.faint),
+                        )),
+                      )),
                     ],
                   ),
                 ),

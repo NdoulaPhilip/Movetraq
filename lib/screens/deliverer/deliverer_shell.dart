@@ -6,9 +6,8 @@ import '../../providers/auth_provider.dart';
 import '../../widgets/app_bottom_nav.dart';
 import '../home/home_shell.dart';
 import '../home/profile_screen.dart';
-import 'd_earnings_screen.dart';
+import 'workspace_screens.dart';
 import 'd_home_screen.dart';
-import 'd_trips_screen.dart';
 
 class DelivererShell extends StatefulWidget {
   const DelivererShell({super.key});
@@ -20,13 +19,33 @@ class DelivererShell extends StatefulWidget {
 class _DelivererShellState extends State<DelivererShell> {
   int _index = 0;
 
-  final _screens = const [DHomeScreen(), DTripsScreen(), DEarningsScreen(), ProfileScreen()];
+  final _screens = const [
+    DHomeScreen(),
+    DeliveryWorkScreen(embedded: true),
+    DelivererAnalyticsScreen(embedded: true),
+    MessagesScreen(embedded: true),
+    ProfileScreen()
+  ];
 
   static const _items = [
-    NavItem(icon: Icons.inventory_2_outlined, selectedIcon: Icons.inventory_2, label: 'Jobs'),
-    NavItem(icon: Icons.local_shipping_outlined, selectedIcon: Icons.local_shipping, label: 'Trips'),
-    NavItem(icon: Icons.account_balance_wallet_outlined, selectedIcon: Icons.account_balance_wallet, label: 'Earnings'),
-    NavItem(icon: Icons.person_outline, selectedIcon: Icons.person, label: 'Profile'),
+    NavItem(
+        icon: Icons.inventory_2_outlined,
+        selectedIcon: Icons.inventory_2,
+        label: 'Deliveries'),
+    NavItem(
+        icon: Icons.work_outline, selectedIcon: Icons.work, label: 'My work'),
+    NavItem(
+        icon: Icons.insights_outlined,
+        selectedIcon: Icons.insights,
+        label: 'Analytics'),
+    NavItem(
+        icon: Icons.chat_bubble_outline,
+        selectedIcon: Icons.chat_bubble,
+        label: 'Messages'),
+    NavItem(
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: 'Profile'),
   ];
 
   @override

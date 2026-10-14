@@ -1,6 +1,27 @@
 # MoveTraq
 
+## Archive Merge
+
+The supplied `Movetraq.rar` is being selectively merged while preserving the
+existing database and configuration. See [merge status](docs/ARCHIVE_MERGE.md)
+for adapted features and remaining work. Restart the local API/admin with
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/start-local.ps1`.
+
+## Updated UI
+
+The supplied updated design is implemented across the mobile screen families,
+with 73 additional routes and an aligned admin visual foundation. See
+[screen coverage and integration boundaries](docs/UI_SCREEN_COVERAGE.md).
+Run `flutter test` for responsive layouts and generated screenshots.
+
 MoveTraq is a Flutter delivery app with sender and deliverer flows backed by a Node.js API and PostgreSQL.
+
+The Supabase/TypeScript production migration lives in `backend/` and
+`supabase/`. Its current implementation, API contract, deployment instructions
+and remaining release work are documented in
+[Production Implementation Status](docs/PRODUCTION_IMPLEMENTATION.md).
+The Flutter app still targets the legacy `server/` API; the new backend is not
+yet a complete replacement. Legacy identifier-only password reset is disabled.
 
 This repository keeps the Android app source and Render backend source. Desktop, iOS, web, generated build output, and local tool caches are not required for the current Android release workflow.
 
@@ -77,7 +98,11 @@ Build APK:
 flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
 ```
 
-The live tracking screen uses Google Maps when `GOOGLE_MAPS_API_KEY` is provided. Without it, the app falls back to the lightweight in-app map preview.
+The live tracking screens use native Google Maps on Android. Set `GOOGLE_MAPS_API_KEY` with `--dart-define`, an environment variable, a Gradle property, or `android/local.properties`; the Android manifest receives that value at build time. If the in-app diagnostics show the key is configured but the map is blank, enable **Maps SDK for Android** for that key in Google Cloud and make sure the Android app restriction includes package `com.example.movetraq` plus the SHA-1 shown by the diagnostics panel.
+
+The backend also geocodes typed pickup/drop-off addresses. For hosted deployments, set `GOOGLE_PLACES_API_KEY` or `GOOGLE_GEOCODING_API_KEY` on the Node server and enable **Places API** plus **Geocoding API** for that key. Use a server/API-restricted key for the backend; an Android package/SHA-1 restricted key usually will not work from the server.
+
+Courier tracking uses the deliverer's device GPS while the active delivery screen is open. Prototype/simulated movement is labelled as simulated and is replaced automatically once real GPS updates reach the app/API.
 
 Local in-memory fallback is disabled for normal builds. Only enable it for isolated development:
 

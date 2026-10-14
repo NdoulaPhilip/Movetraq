@@ -1,338 +1,456 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/app_user.dart';
+import '../../models/misc_models.dart';
 import '../../models/parcel_order.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mini_map.dart';
+import '../../widgets/movetraq_brand.dart';
+import '../../features/addresses/home_location_picker.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String? _userId;
+  Future<String>? _greeting;
+  Stream<List<SavedAddress>>? _addresses;
+  Stream<List<ParcelOrder>>? _orders;
+  bool _refreshFailed = false;
+  bool _refreshing = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final uid = context.watch<AuthProvider>().profile?.uid;
+    if (_greeting == null || _userId != uid) {
+      _userId = uid;
+      _refreshFailed = false;
+      _loadStreams();
+    }
+  }
+
+  void _loadStreams() {
+    final data = context.read<LocalDataService>();
+    _greeting = data.homeContext().then((home) => home.greeting);
+    _addresses = _userId == null ? null : data.watchSavedAddresses(_userId!);
+    _orders = _userId == null ? null : data.watchSenderOrders(_userId!);
+  }
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    final uid = _userId;
+    try {
+      await context.read<LocalDataService>().refreshRemoteState();
+      if (!mounted || uid != _userId) return;
+      setState(() {
+        _refreshFailed = false;
+        _loadStreams();
+      });
+      await _greeting;
+    } catch (_) {
+      if (mounted && uid == _userId) setState(() => _refreshFailed = true);
+    } finally {
+      _refreshing = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    final profile = auth.profile;
-    final data = context.read<LocalDataService>();
-    final firstName = (profile?.name.split(' ').first ?? 'there');
+    final profile = context.watch<AuthProvider>().profile;
+    final pickup = context.watch<SendFlowProvider>().pickupAddress.trim();
+    return FutureBuilder<String>(
+        future: _greeting,
+        builder: (context, greeting) => StreamBuilder<List<SavedAddress>>(
+            key: ValueKey('home-addresses-$_userId'),
+            stream: _addresses,
+            builder: (context, addresses) => StreamBuilder<List<ParcelOrder>>(
+                key: ValueKey('home-orders-$_userId'),
+                stream: _orders,
+                builder: (context, orders) {
+                  String? current;
+                  for (final address in addresses.data ?? <SavedAddress>[]) {
+                    if (address.isDefault) {
+                      current = address.address;
+                      break;
+                    }
+                  }
+                  final active = (orders.data ?? <ParcelOrder>[])
+                      .where((order) =>
+                          order.senderId == profile?.uid &&
+                          order.status != OrderStatus.released &&
+                          order.status != OrderStatus.cancelled)
+                      .toList()
+                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                  return HomeContent(
+                    profile: profile,
+                    greeting: greeting.data,
+                    currentLocation: pickup.isNotEmpty ? pickup : current,
+                    recentOrder: active.isEmpty ? null : active.first,
+                    connectionError: _refreshFailed ||
+                        greeting.hasError ||
+                        addresses.hasError ||
+                        orders.hasError,
+                    onLocationTap: () => chooseHomeLocation(context),
+                    onRefresh: _refresh,
+                  );
+                })));
+  }
+}
 
-    final quickActions = [
-      ('Send', Icons.send_outlined, '/send'),
-      ('Track', Icons.my_location_outlined, '/track-list'),
-      ('Wallet', Icons.account_balance_wallet_outlined, '/wallet'),
-      ('Deliver', Icons.local_shipping_outlined, '/go-deliverer'),
+class HomeContent extends StatelessWidget {
+  const HomeContent(
+      {super.key,
+      this.profile,
+      this.recentOrder,
+      this.currentLocation,
+      this.greeting,
+      this.connectionError = false,
+      this.onLocationTap,
+      this.onRefresh,
+      this.onNavigate});
+  final AppUser? profile;
+  final ParcelOrder? recentOrder;
+  final String? currentLocation;
+  final String? greeting;
+  final bool connectionError;
+  final VoidCallback? onLocationTap;
+  final Future<void> Function()? onRefresh;
+  final void Function(String route, Object? arguments)? onNavigate;
+
+  void _open(BuildContext context, String route, [Object? arguments]) {
+    if (onNavigate != null) {
+      onNavigate!(route, arguments);
+    } else {
+      Navigator.pushNamed(context, route, arguments: arguments);
+    }
+  }
+
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    return hour < 12
+        ? 'Good morning'
+        : hour < 17
+            ? 'Good afternoon'
+            : 'Good evening';
+  }
+
+  String _status(OrderStatus status) => switch (status) {
+        OrderStatus.pendingOffer => 'Awaiting deliverer',
+        OrderStatus.negotiating => 'Offer negotiation',
+        OrderStatus.accepted => 'Deliverer assigned',
+        OrderStatus.pickedUp => 'On the way',
+        OrderStatus.delivered => 'Awaiting your confirmation',
+        OrderStatus.released => 'Completed',
+        OrderStatus.cancelled => 'Cancelled',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final name = profile?.name.trim() ?? '';
+    final firstName = name.isEmpty ? 'there' : name.split(RegExp(r'\s+')).first;
+    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final quick = [
+      ('Send', Icons.send_outlined, 'lime', '/send'),
+      ('P2P delivery', Icons.local_shipping_outlined, 'lime', '/p2p-requests'),
+      ('Receive', Icons.inventory_2_outlined, 'peach', '/receive'),
+      ('Schedule', Icons.calendar_today_outlined, 'mint', '/schedule'),
     ];
-
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 108),
+    final services = [
+      (
+        'Send a package',
+        'Doorstep pickup',
+        Icons.send_outlined,
+        'lime',
+        '/send'
+      ),
+      (
+        'Receive items',
+        'Track incoming',
+        Icons.inventory_2_outlined,
+        'peach',
+        '/receive'
+      ),
+      (
+        'Run an errand',
+        'Shop & drop',
+        Icons.shopping_bag_outlined,
+        'sky',
+        '/errand'
+      ),
+      (
+        'Big move',
+        'Furniture & more',
+        Icons.local_shipping_outlined,
+        'mint',
+        '/big-move'
+      ),
+    ];
+    final list = ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 108),
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Deliver to', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                    Row(children: [
-                      Icon(Icons.location_on, color: AppColors.accent, size: 16),
-                      SizedBox(width: 5),
-                      Text('Lekki Phase 1', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                      Icon(Icons.keyboard_arrow_down, size: 18),
-                    ]),
-                  ],
-                ),
-              ),
-              CircleIconButton(
+          Row(children: [
+            Expanded(
+                child: InkWell(
+                    onTap: onLocationTap ??
+                        () => _open(context, '/select-address'),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Current location',
+                              style: TextStyle(
+                                  fontSize: 11, color: AppColors.muted)),
+                          const SizedBox(height: 4),
+                          Row(children: [
+                            const Icon(Icons.location_on_outlined,
+                                size: 16, color: Color(0xFF79913B)),
+                            const SizedBox(width: 5),
+                            Flexible(
+                                child: Text(
+                                    currentLocation?.trim().isNotEmpty == true
+                                        ? currentLocation!
+                                        : 'Choose your location',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600))),
+                            const Icon(Icons.keyboard_arrow_down, size: 18),
+                          ]),
+                        ]))),
+            const SizedBox(width: 12),
+            CircleIconButton(
                 icon: Icons.notifications_outlined,
-                showDot: true,
-                onTap: () => Navigator.pushNamed(context, '/notifications'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text.rich(
-            TextSpan(
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 26, height: 1.12),
-              children: [
-                TextSpan(text: 'Good afternoon, $firstName.\n'),
-                const TextSpan(text: 'What are we moving today?', style: TextStyle(color: AppColors.muted)),
-              ],
-            ),
-          ),
+                onTap: () => _open(context, '/notifications')),
+          ]),
+          const SizedBox(height: 24),
+          Text('${greeting ?? _greeting()}, $firstName.',
+              style: const TextStyle(
+                  fontSize: 25, fontWeight: FontWeight.w600, letterSpacing: 0)),
+          const SizedBox(height: 7),
+          const Text('What are we moving today?',
+              style: TextStyle(fontSize: 16, color: AppColors.muted)),
           const SizedBox(height: 18),
           InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => Navigator.pushNamed(context, '/send'),
-            child: Container(
-              height: 54,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: const Row(children: [
-                Icon(Icons.search, color: AppColors.muted),
-                SizedBox(width: 11),
-                Text('Where to? Enter a destination…', style: TextStyle(color: AppColors.muted, fontSize: 15)),
-              ]),
-            ),
-          ),
-          const SizedBox(height: 18),
-          if (profile != null)
-            StreamBuilder<ParcelOrder?>(
-              stream: data.watchActiveSenderOrder(profile.uid),
-              builder: (context, snap) {
-                final order = snap.data;
-                if (order == null) return const SizedBox.shrink();
-                return _ActiveDeliveryCard(order: order);
-              },
-            ),
-          const SizedBox(height: 20),
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 0.85,
-            children: quickActions.map((q) {
-              return InkWell(
-                borderRadius: BorderRadius.circular(18),
-                onTap: () async {
-                  if (q.$3 == '/go-deliverer') {
-                    final auth = context.read<AuthProvider>();
-                    final ok = await auth.toggleRole();
-                    if (!context.mounted || ok || auth.errorMessage == null) {
-                      return;
-                    }
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(auth.errorMessage!)),
-                    );
-                  } else {
-                    Navigator.pushNamed(context, q.$3);
-                  }
-                },
-                child: Container(
+              onTap: () => _open(context, '/location-search'),
+              child: Container(
+                  height: 54,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: AppColors.borderSoft),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.tint['lime'],
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        child: Icon(q.$2, size: 20, color: AppColors.ink),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(q.$1, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.border)),
+                  child: const Row(children: [
+                    Icon(Icons.search, size: 20, color: AppColors.muted),
+                    SizedBox(width: 11),
+                    Expanded(
+                        child: Text('Where to? Enter a destination...',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 15, color: AppColors.muted))),
+                  ]))),
+          const SizedBox(height: 18),
+          Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: AppColors.ink, borderRadius: BorderRadius.circular(8)),
+              child: Row(children: [
+                const Icon(Icons.inventory_2_outlined,
+                    size: 25, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(
+                          recentOrder?.title.trim().isNotEmpty == true
+                              ? recentOrder!.title
+                              : 'Your next delivery',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text(
+                          recentOrder == null
+                              ? 'Ready when you are.'
+                              : _status(recentOrder!.status),
+                          style: const TextStyle(
+                              color: Color(0xFFADB4BF), fontSize: 12)),
+                    ])),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                    onPressed: () => recentOrder == null
+                        ? _open(context, '/service-choice')
+                        : _open(context, '/order-detail', recentOrder!.id),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: AppColors.ink,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        minimumSize: const Size(0, 44),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8))),
+                    icon: Icon(
+                        recentOrder == null
+                            ? Icons.send_outlined
+                            : Icons.navigation_outlined,
+                        size: 16),
+                    label: Text(recentOrder == null ? 'Send' : 'Track',
+                        style: const TextStyle(fontSize: 12))),
+              ])),
+          const SizedBox(height: 20),
+          GridView(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  crossAxisSpacing: 10,
+                  mainAxisExtent: 96 + (scale - 1).clamp(0, 3) * 48),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: quick
+                  .map((item) => InkWell(
+                      onTap: () => _open(context, item.$4),
+                      child: Container(
+                          decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(color: AppColors.borderSoft),
+                              borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _IconTile(
+                                    icon: item.$2,
+                                    tint: AppColors.tint[item.$3]!),
+                                const SizedBox(height: 8),
+                                Text(item.$1,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600)),
+                              ]))))
+                  .toList()),
           const SizedBox(height: 26),
-          const Text('Ways to move', style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 19, letterSpacing: -0.2)),
+          const Text('Ways to move',
+              style: TextStyle(
+                  fontFamily: 'SpaceGrotesk',
+                  fontSize: 19,
+                  fontWeight: FontWeight.w600)),
           const SizedBox(height: 12),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.35,
-            children: [
-              _WayToMoveCard(
-                icon: Icons.inventory_2_outlined,
-                tint: AppColors.tint['peach']!,
-                title: 'Send a parcel',
-                sub: 'City-wide, tracked & insured',
-                route: '/send',
-              ),
-              _WayToMoveCard(
-                icon: Icons.shopping_bag_outlined,
-                tint: AppColors.tint['sky']!,
-                title: 'Food & groceries',
-                sub: 'From your favourite spots',
-                route: '/send',
-              ),
-              _WayToMoveCard(
-                icon: Icons.description_outlined,
-                tint: AppColors.tint['sand']!,
-                title: 'Documents',
-                sub: 'Same-day, signature on arrival',
-                route: '/send',
-              ),
-              _WayToMoveCard(
-                icon: Icons.bolt_outlined,
-                tint: AppColors.tint['lime']!,
-                title: 'Express',
-                sub: 'Priority pickup, arrives fast',
-                route: '/send',
-              ),
-            ],
-          ),
+          GridView(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  mainAxisExtent:
+                      (MediaQuery.sizeOf(context).width < 360 ? 164.0 : 142.0) +
+                          (scale - 1).clamp(0, 3) * 160),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: services
+                  .map((item) => InkWell(
+                      onTap: () => _open(context, item.$5),
+                      child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                              color: AppColors.tint[item.$4],
+                              borderRadius: BorderRadius.circular(8)),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _IconTile(
+                                    icon: item.$3,
+                                    tint: Colors.white.withValues(alpha: .65)),
+                                Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(item.$1,
+                                          style: const TextStyle(
+                                              fontFamily: 'SpaceGrotesk',
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600)),
+                                      const SizedBox(height: 3),
+                                      Text(item.$2,
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF5A616C))),
+                                    ]),
+                              ]))))
+                  .toList()),
           const SizedBox(height: 14),
           Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(22)),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned(
-                  right: -30,
-                  top: -30,
-                  child: Container(
-                    width: 130,
-                    height: 130,
-                    decoration: BoxDecoration(color: AppColors.accent.withValues(alpha: 0.14), shape: BoxShape.circle),
-                  ),
-                ),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Column(
+              padding: const EdgeInsets.all(18),
+              color: AppColors.ink,
+              child: const Row(children: [
+                Expanded(
+                    child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('20% off your next 3 sends',
-                              style: TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 17, color: Colors.white, letterSpacing: -0.1)),
-                          SizedBox(height: 4),
-                          Text('Gold tier perk · auto-applied at checkout', style: TextStyle(fontSize: 12.5, color: Color(0xFF9AA3AF))),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(14)),
-                      child: const Icon(Icons.card_giftcard, color: AppColors.ink, size: 22),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+                      Text('Your world. Delivered.',
+                          style: TextStyle(
+                              fontFamily: 'SpaceGrotesk',
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white)),
+                      SizedBox(height: 4),
+                      Text('Send it with care.',
+                          style: TextStyle(
+                              fontSize: 12, color: Color(0xFFADB4BF))),
+                    ])),
+                SizedBox(width: 14),
+                ColoredBox(
+                    color: AppColors.accent,
+                    child: Padding(
+                        padding: EdgeInsets.all(8),
+                        child: MoveTraqMark(size: 30)))
+              ])),
+          if (connectionError)
+            Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Unable to refresh your home screen.',
+                          style:
+                              TextStyle(fontSize: 12, color: AppColors.muted)),
+                      if (onRefresh != null)
+                        TextButton.icon(
+                            onPressed: () {
+                              onRefresh!();
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Retry')),
+                    ])),
+        ]);
+    return SafeArea(
+        child: onRefresh == null
+            ? list
+            : RefreshIndicator(onRefresh: onRefresh!, child: list));
   }
 }
 
-class _WayToMoveCard extends StatelessWidget {
+class _IconTile extends StatelessWidget {
+  const _IconTile({required this.icon, required this.tint});
   final IconData icon;
   final Color tint;
-  final String title;
-  final String sub;
-  final String route;
-  const _WayToMoveCard({required this.icon, required this.tint, required this.title, required this.sub, required this.route});
-
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: () => Navigator.pushNamed(context, route),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(22)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.62), borderRadius: BorderRadius.circular(14)),
-              child: Icon(icon, size: 23, color: AppColors.ink),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.ink, letterSpacing: -0.1)),
-                const SizedBox(height: 3),
-                Text(sub, style: const TextStyle(fontSize: 12, color: Color(0xFF5A616C))),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActiveDeliveryCard extends StatelessWidget {
-  final ParcelOrder order;
-  const _ActiveDeliveryCard({required this.order});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(26),
-      onTap: () => Navigator.pushNamed(context, '/live', arguments: order.id),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(26),
-        child: Container(
-          color: AppColors.darkSurface,
-          child: Column(
-            children: [
-              Stack(
-                children: [
-                  const MiniMap(height: 150),
-                  Positioned(
-                    left: 14,
-                    top: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(100)),
-                      child: const Text('In transit', style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                child: Row(
-                  children: [
-                    const CircleAvatar(radius: 21, backgroundColor: Color(0xFF3A4250), child: Icon(Icons.person, color: Colors.white, size: 18)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(order.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14.5)),
-                          const SizedBox(height: 2),
-                          Text('${order.code} · ${order.delivererName ?? "Courier"} is on the way',
-                              style: const TextStyle(color: Color(0xFF8A93A2), fontSize: 12), overflow: TextOverflow.ellipsis),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      height: 38,
-                      padding: const EdgeInsets.symmetric(horizontal: 15),
-                      decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(12)),
-                      child: const Row(children: [
-                        Text('Track', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 13.5)),
-                        SizedBox(width: 4),
-                        Icon(Icons.arrow_forward, size: 15, color: AppColors.ink),
-                      ]),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+      width: 40,
+      height: 40,
+      decoration:
+          BoxDecoration(color: tint, borderRadius: BorderRadius.circular(8)),
+      child: Icon(icon, size: 21, color: AppColors.ink));
 }

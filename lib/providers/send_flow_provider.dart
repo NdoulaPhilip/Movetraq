@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 
 import '../models/app_user.dart';
@@ -12,18 +10,20 @@ class SendFlowProvider extends ChangeNotifier {
   final LocalDataService _data;
   SendFlowProvider(this._data);
 
-  String category = 'parcel'; // parcel, document, food, fragile, electronics, clothing
+  String category =
+      'parcel'; // parcel, document, food, fragile, electronics, clothing
   String title = '';
-  String pickupAddress = 'Ikeja City Mall';
-  String dropoffAddress = '12 Admiralty Way, Lekki';
+  String pickupAddress = '';
+  String dropoffAddress = '';
   LatLng? pickupLocation;
   LatLng? dropoffLocation;
   bool isP2P = true; // peer-to-peer negotiated mode vs express fixed quote
   int speedIndex = 0; // used in Express mode: 0 = standard, 1 = express
-  bool termsAgreed = true;
+  bool termsAgreed = false;
   double basePrice = 3500;
   double? proposal;
-  double offer = 3500; // P2P: amount the sender is offering, shown in the big dark card
+  double offer =
+      3500; // P2P: amount the sender is offering, shown in the big dark card
   final List<Uint8List> parcelPhotos = [];
 
   bool get isExpress => !isP2P;
@@ -40,13 +40,13 @@ class SendFlowProvider extends ChangeNotifier {
   void reset() {
     category = 'parcel';
     title = '';
-    pickupAddress = 'Ikeja City Mall';
-    dropoffAddress = '12 Admiralty Way, Lekki';
+    pickupAddress = '';
+    dropoffAddress = '';
     pickupLocation = null;
     dropoffLocation = null;
     isP2P = true;
     speedIndex = 0;
-    termsAgreed = true;
+    termsAgreed = false;
     basePrice = 3500;
     proposal = null;
     offer = 3500;
@@ -114,6 +114,13 @@ class SendFlowProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDraftOffer(double amount) {
+    offer = amount;
+    proposal = amount;
+    negoStatus = null;
+    notifyListeners();
+  }
+
   void toggleTermsAgreed() {
     termsAgreed = !termsAgreed;
     notifyListeners();
@@ -178,6 +185,14 @@ class SendFlowProvider extends ChangeNotifier {
   String get selectedSpeedLabel => expressSpeedLabels[speedIndex];
 
   Future<String> submitOrder(AppUser sender) async {
+    final resolvedPickupLocation = pickupLocation ??
+        await _data.resolveAddressLocation(
+          pickupAddress.isEmpty ? 'Current location' : pickupAddress,
+        );
+    final resolvedDropoffLocation = dropoffLocation ??
+        await _data.resolveAddressLocation(
+          dropoffAddress.isEmpty ? 'Lekki Phase 1' : dropoffAddress,
+        );
     final deliveryFee = effectivePrice;
     final price = totalPrice;
     final express = !isP2P;
@@ -192,8 +207,8 @@ class SendFlowProvider extends ChangeNotifier {
       category: category,
       pickupAddress: pickupAddress.isEmpty ? 'Current location' : pickupAddress,
       dropoffAddress: dropoffAddress.isEmpty ? 'Lekki Phase 1' : dropoffAddress,
-      pickupLocation: pickupLocation,
-      dropoffLocation: dropoffLocation,
+      pickupLocation: resolvedPickupLocation,
+      dropoffLocation: resolvedDropoffLocation,
       price: price,
       payout: deliveryFee,
       isExpress: express,
@@ -206,6 +221,8 @@ class SendFlowProvider extends ChangeNotifier {
       status: OrderStatus.pendingOffer,
       createdAt: DateTime.now(),
     );
+    pickupLocation = resolvedPickupLocation;
+    dropoffLocation = resolvedDropoffLocation;
     final id = await _data.createOrder(draft);
     createdOrderId = id;
     notifyListeners();

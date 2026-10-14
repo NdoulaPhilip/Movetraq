@@ -1,0 +1,10 @@
+begin;
+alter table event_outbox add column dedupe_key text unique;
+alter table event_outbox add column lease_until timestamptz;
+alter table event_outbox add column leased_by uuid;
+alter table payouts add column idempotency_key text;
+create unique index payout_idempotency on payouts(user_id,idempotency_key);
+create table refund_requests(id uuid primary key default gen_random_uuid(),payment_id uuid not null references payments(id),amount_minor bigint not null check(amount_minor>0),reason text not null,status text not null default 'pending' check(status in ('pending','processing','completed','failed')),provider_reference text,requested_by uuid not null references profiles(id),created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+alter table refund_requests enable row level security;
+revoke all on refund_requests from anon,authenticated;
+commit;

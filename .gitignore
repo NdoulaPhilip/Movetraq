@@ -10,10 +10,25 @@ build/
 *.g.dart
 *.freezed.dart
 *.log
+*.hprof
 server/.data/
 server/.env
 server/node_modules/
+backend/node_modules/
+backend/dist/
+backend/.npm-cache/
+admin/node_modules/
+admin/dist/
+admin/.npm-cache/
+admin/test-results/
+admin/playwright-report/
+admin/*.tsbuildinfo
+.env.*
+!.env.example
+!**/.env.example
 .env
+.prototype_audit/
+.archive-review/
 
 # Uncomment if you don't want to commit generated platform projects:
 # android/

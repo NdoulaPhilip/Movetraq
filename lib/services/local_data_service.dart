@@ -12,6 +12,13 @@ import 'node_api_client.dart';
 /// available only for isolated development with
 /// `--dart-define=MOVETRAQ_ALLOW_LOCAL_FALLBACK=true`.
 class LocalDataService {
+  Future<Map<String, dynamic>> extendedRequest(String method, String path,
+      {Map<String, dynamic>? body}) {
+    final api = _api;
+    if (api == null) throw StateError('A connected API is required.');
+    return api.extendedRequest(method, path, body: body);
+  }
+
   LocalDataService({
     NodeApiClient? api,
     bool useRemote = true,
@@ -122,6 +129,21 @@ class LocalDataService {
       _notifsController =
       StreamController<Map<String, List<NotificationItem>>>.broadcast();
 
+  final Map<String, List<SavedAddress>> _savedAddresses = {};
+
+  final StreamController<Map<String, List<SavedAddress>>> _addressesController =
+      StreamController<Map<String, List<SavedAddress>>>.broadcast();
+
+  final Map<String, SecuritySettings> _securitySettings = {};
+
+  final StreamController<Map<String, SecuritySettings>> _securityController =
+      StreamController<Map<String, SecuritySettings>>.broadcast();
+
+  final Map<String, List<SupportTicket>> _supportTickets = {};
+
+  final StreamController<Map<String, List<SupportTicket>>> _supportController =
+      StreamController<Map<String, List<SupportTicket>>>.broadcast();
+
   // ---------------------------------------------------------------------------
   // Authentication
   // ---------------------------------------------------------------------------
@@ -151,6 +173,13 @@ class LocalDataService {
   ) async* {
     yield getCurrent();
     yield* updates;
+  }
+
+  Stream<T> _withLocalTracking<T>(
+    T Function() getCurrent,
+    Stream<T> updates,
+  ) {
+    return _withInitial(getCurrent, updates);
   }
 
   void _storeUser(AppUser user, {bool makeCurrent = false}) {
@@ -209,6 +238,45 @@ class LocalDataService {
     }
   }
 
+  Future<HomeContext> homeContext() async {
+    final api = _api;
+    if (api != null) {
+      try {
+        return await api.homeContext();
+      } catch (_) {
+        // Keep the home screen friendly while the hosted API wakes up.
+      }
+    }
+    return _localHomeContext();
+  }
+
+  HomeContext _localHomeContext() {
+    final now = DateTime.now();
+    final hour = now.hour;
+    if (hour < 12) {
+      return HomeContext(
+        greeting: 'Good morning',
+        period: 'morning',
+        serverTime: now,
+        timezone: 'local',
+      );
+    }
+    if (hour < 17) {
+      return HomeContext(
+        greeting: 'Good afternoon',
+        period: 'afternoon',
+        serverTime: now,
+        timezone: 'local',
+      );
+    }
+    return HomeContext(
+      greeting: 'Good evening',
+      period: 'evening',
+      serverTime: now,
+      timezone: 'local',
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // ID generators
   // ---------------------------------------------------------------------------
@@ -231,6 +299,14 @@ class LocalDataService {
 
   String _genNotificationId() {
     return 'notif_${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  String _genAddressId() {
+    return 'addr_${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  String _genTicketId() {
+    return 'ticket_${DateTime.now().microsecondsSinceEpoch}';
   }
 
   // ===========================================================================
@@ -357,8 +433,7 @@ class LocalDataService {
     if (existingUsers.isNotEmpty) {
       user = existingUsers.first;
     } else {
-      final uid =
-          'user_${DateTime.now().microsecondsSinceEpoch}';
+      final uid = 'user_${DateTime.now().microsecondsSinceEpoch}';
 
       user = AppUser(
         uid: uid,
@@ -412,7 +487,8 @@ class LocalDataService {
     );
 
     if (!exists) {
-      throw StateError('No MoveTraq account was found for that email or phone.');
+      throw StateError(
+          'No MoveTraq account was found for that email or phone.');
     }
   }
 
@@ -447,6 +523,42 @@ class LocalDataService {
       currentUser = updatedUser;
       _authController.add(updatedUser);
     }
+  }
+
+  /// Updates editable profile fields for the signed-in user.
+  Future<void> updateProfile({
+    required String uid,
+    required String name,
+    required String phone,
+  }) async {
+    final trimmedName = name.trim();
+    final trimmedPhone = phone.trim();
+
+    if (trimmedName.isEmpty) {
+      throw StateError('Name is required.');
+    }
+
+    final api = _api;
+    if (api != null && api.isAuthenticated && currentUser?.uid == uid) {
+      _storeUser(
+        await api.updateProfile(name: trimmedName, phone: trimmedPhone),
+        makeCurrent: true,
+      );
+      return;
+    }
+
+    final user = _users[uid];
+
+    if (user == null) {
+      return;
+    }
+
+    final updatedUser = user.copyWith(
+      name: trimmedName,
+      phone: trimmedPhone,
+    );
+
+    _storeUser(updatedUser, makeCurrent: currentUser?.uid == uid);
   }
 
   /// Sets a deliverer's online/offline status.
@@ -512,6 +624,60 @@ class LocalDataService {
         )
         .take(6)
         .toList();
+  }
+
+  Future<LatLng?> resolveAddressLocation(String address) async {
+    final trimmed = address.trim();
+    if (trimmed.isEmpty) return null;
+
+    final api = _api;
+    if (api != null && api.isAuthenticated) {
+      try {
+        final location = await api.geocodeAddress(trimmed);
+        if (location.latitude != null && location.longitude != null) {
+          return LatLng(location.latitude!, location.longitude!);
+        }
+      } catch (_) {
+        // Continue to suggestions/local fallback when the backend geocoder is
+        // unavailable or the address cannot be resolved.
+      }
+    }
+
+    final suggestions = await searchAddresses(trimmed);
+    if (suggestions.isNotEmpty) {
+      final exact = suggestions.where(
+        (item) =>
+            item.address.toLowerCase() == trimmed.toLowerCase() ||
+            item.name.toLowerCase() == trimmed.toLowerCase(),
+      );
+      final match = exact.isNotEmpty ? exact.first : suggestions.first;
+      if (match.latitude != null && match.longitude != null) {
+        return LatLng(match.latitude!, match.longitude!);
+      }
+    }
+
+    return _approximateLagosLocation(trimmed);
+  }
+
+  LatLng _approximateLagosLocation(String seed) {
+    var hash = 0;
+    for (final unit in seed.codeUnits) {
+      hash = (hash * 31 + unit) & 0x7fffffff;
+    }
+
+    // Keep manually typed addresses usable by placing them inside greater
+    // Lagos until a real geocoder match is available.
+    final latFraction = (hash % 10000) / 10000;
+    final lngFraction = ((hash ~/ 10000) % 10000) / 10000;
+    const minLat = 6.4200;
+    const maxLat = 6.6200;
+    const minLng = 3.3000;
+    const maxLng = 3.6000;
+
+    return LatLng(
+      minLat + (maxLat - minLat) * latFraction,
+      minLng + (maxLng - minLng) * lngFraction,
+    );
   }
 
   // ===========================================================================
@@ -598,7 +764,7 @@ class LocalDataService {
           );
           refresh();
           timer = Timer.periodic(
-            const Duration(seconds: 3),
+            const Duration(seconds: 1),
             (_) => refresh(),
           );
         },
@@ -611,7 +777,7 @@ class LocalDataService {
       return controller.stream;
     }
 
-    return _withInitial(
+    return _withLocalTracking(
       () => _orders[orderId],
       _ordersController.stream.map(
         (orders) => orders[orderId],
@@ -655,7 +821,7 @@ class LocalDataService {
       );
     }
 
-    return _withInitial(
+    return _withLocalTracking(
       () => select(_orders),
       _ordersController.stream.map(select),
     );
@@ -689,7 +855,7 @@ class LocalDataService {
       return activeOrders.first;
     }
 
-    return _withInitial(
+    return _withLocalTracking(
       () => select(_orders),
       _ordersController.stream.map(select),
     );
@@ -704,13 +870,12 @@ class LocalDataService {
     ) {
       return _sortedDesc(
         orders.values.where(
-          (order) =>
-              order.status == OrderStatus.pendingOffer,
+          (order) => order.status == OrderStatus.pendingOffer,
         ),
       );
     }
 
-    return _withInitial(
+    return _withLocalTracking(
       () => select(_orders),
       _ordersController.stream.map(select),
     );
@@ -727,13 +892,12 @@ class LocalDataService {
     ) {
       return _sortedDesc(
         orders.values.where(
-          (order) =>
-              order.delivererId == delivererId,
+          (order) => order.delivererId == delivererId,
         ),
       );
     }
 
-    return _withInitial(
+    return _withLocalTracking(
       () => select(_orders),
       _ordersController.stream.map(select),
     );
@@ -784,6 +948,8 @@ class LocalDataService {
         delivererName: delivererName,
         status: OrderStatus.accepted,
         dStage: 0,
+        courierLocation: order.courierLocation,
+        courierLocationIsSimulated: false,
       ),
     );
   }
@@ -809,8 +975,7 @@ class LocalDataService {
       OrderStatus.delivered,
     ];
 
-    if (newStage < 0 ||
-        newStage >= statusForStage.length) {
+    if (newStage < 0 || newStage >= statusForStage.length) {
       throw ArgumentError(
         'Invalid delivery stage: $newStage',
       );
@@ -821,9 +986,8 @@ class LocalDataService {
       (order) => order.copyWith(
         dStage: newStage,
         status: statusForStage[newStage],
-        deliveredAt: newStage == 2
-            ? DateTime.now()
-            : order.deliveredAt,
+        courierLocationIsSimulated: order.courierLocationIsSimulated,
+        deliveredAt: newStage == 2 ? DateTime.now() : order.deliveredAt,
       ),
     );
   }
@@ -842,9 +1006,19 @@ class LocalDataService {
 
     _updateOrder(
       orderId,
-      (order) => order.copyWith(
-        courierLocation: LatLng(lat, lng),
-      ),
+      (order) {
+        final trail = [
+          ...order.courierLocationTrail,
+          LatLng(lat, lng),
+        ];
+        return order.copyWith(
+          courierLocation: LatLng(lat, lng),
+          courierLocationUpdatedAt: DateTime.now(),
+          courierLocationTrail:
+              trail.length > 120 ? trail.sublist(trail.length - 120) : trail,
+          courierLocationIsSimulated: false,
+        );
+      },
     );
   }
 
@@ -962,8 +1136,7 @@ class LocalDataService {
       return users.values
           .where(
             (user) =>
-                user.activeRole == UserRole.deliverer &&
-                user.delivererOnline,
+                user.activeRole == UserRole.deliverer && user.delivererOnline,
           )
           .toList();
     }
@@ -1003,7 +1176,11 @@ class LocalDataService {
           _messagesController.add(
             Map<String, List<ChatMessage>>.of(_messages),
           );
-        } catch (_) {
+        } catch (error) {
+          if (!controller.isClosed && select(_messages).isEmpty) {
+            controller.addError(error);
+            return;
+          }
           // Keep the last known messages visible while the next poll retries.
         }
 
@@ -1082,6 +1259,27 @@ class LocalDataService {
     _messagesController.add(
       Map<String, List<ChatMessage>>.of(_messages),
     );
+  }
+
+  Future<AppUser> orderContact(String orderId) async {
+    final api = _api;
+    if (api != null) {
+      return api.orderContact(orderId);
+    }
+
+    final order = _orders[orderId];
+    final uid = currentUser?.uid;
+    if (order == null || uid == null) {
+      throw StateError('Open a valid order before calling.');
+    }
+
+    final otherUserId =
+        uid == order.senderId ? order.delivererId : order.senderId;
+    final contact = otherUserId == null ? null : _users[otherUserId];
+    if (contact == null) {
+      throw StateError('The other participant is not available yet.');
+    }
+    return contact;
   }
 
   // ===========================================================================
@@ -1168,8 +1366,7 @@ class LocalDataService {
     }
 
     final updatedUser = user.copyWith(
-      walletBalance:
-          user.walletBalance + balanceDelta,
+      walletBalance: user.walletBalance + balanceDelta,
     );
 
     _users[uid] = updatedUser;
@@ -1205,8 +1402,7 @@ class LocalDataService {
       Map<String, List<NotificationItem>> notifications,
     ) {
       final list = List<NotificationItem>.of(
-        notifications[uid] ??
-            const <NotificationItem>[],
+        notifications[uid] ?? const <NotificationItem>[],
       );
 
       list.sort(
@@ -1297,6 +1493,220 @@ class LocalDataService {
   }
 
   // ===========================================================================
+  // PROFILE SETTINGS
+  // ===========================================================================
+
+  Stream<List<SavedAddress>> watchSavedAddresses(String uid) {
+    if (currentUser?.uid == uid) {
+      _api?.savedAddresses().then((addresses) {
+        _savedAddresses[uid] = addresses;
+        _addressesController.add(
+          Map<String, List<SavedAddress>>.of(_savedAddresses),
+        );
+      }).ignore();
+    }
+
+    List<SavedAddress> select(Map<String, List<SavedAddress>> addresses) {
+      final list = List<SavedAddress>.of(
+        addresses[uid] ?? const <SavedAddress>[],
+      );
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    }
+
+    return _withInitial(
+      () => select(_savedAddresses),
+      _addressesController.stream.map(select),
+    );
+  }
+
+  Future<void> saveAddress(
+    String uid, {
+    String? id,
+    required String label,
+    required String address,
+  }) async {
+    final trimmedLabel = label.trim();
+    final trimmedAddress = address.trim();
+    if (trimmedLabel.isEmpty || trimmedAddress.isEmpty) {
+      throw StateError('Label and address are required.');
+    }
+
+    final api = _api;
+    if (api != null && api.isAuthenticated && currentUser?.uid == uid) {
+      await api.saveAddress(
+        id: id,
+        label: trimmedLabel,
+        address: trimmedAddress,
+      );
+      _savedAddresses[uid] = await api.savedAddresses();
+      _addressesController.add(
+        Map<String, List<SavedAddress>>.of(_savedAddresses),
+      );
+      return;
+    }
+
+    final list = _savedAddresses.putIfAbsent(uid, () => <SavedAddress>[]);
+    final item = SavedAddress(
+      id: id ?? _genAddressId(),
+      label: trimmedLabel,
+      address: trimmedAddress,
+      createdAt: DateTime.now(),
+    );
+    final index = list.indexWhere((address) => address.id == item.id);
+    if (index == -1) {
+      list.add(item);
+    } else {
+      list[index] = item;
+    }
+    _addressesController.add(
+      Map<String, List<SavedAddress>>.of(_savedAddresses),
+    );
+  }
+
+  Future<void> deleteAddress(String uid, String addressId) async {
+    final api = _api;
+    if (api != null && api.isAuthenticated && currentUser?.uid == uid) {
+      await api.deleteAddress(addressId);
+      _savedAddresses[uid] = await api.savedAddresses();
+      _addressesController.add(
+        Map<String, List<SavedAddress>>.of(_savedAddresses),
+      );
+      return;
+    }
+
+    final list = _savedAddresses[uid];
+    if (list == null) return;
+    list.removeWhere((address) => address.id == addressId);
+    _addressesController.add(
+      Map<String, List<SavedAddress>>.of(_savedAddresses),
+    );
+  }
+
+  Stream<SecuritySettings> watchSecuritySettings(String uid) {
+    if (currentUser?.uid == uid) {
+      _api?.securitySettings().then((settings) {
+        _securitySettings[uid] = settings;
+        _securityController.add(
+          Map<String, SecuritySettings>.of(_securitySettings),
+        );
+      }).ignore();
+    }
+
+    SecuritySettings select(Map<String, SecuritySettings> settings) {
+      return settings[uid] ?? SecuritySettings();
+    }
+
+    return _withInitial(
+      () => select(_securitySettings),
+      _securityController.stream.map(select),
+    );
+  }
+
+  Future<void> updateSecuritySettings(
+    String uid, {
+    required bool biometricsEnabled,
+    required bool pinEnabled,
+    String? pin,
+  }) async {
+    final current = _securitySettings[uid] ?? SecuritySettings();
+    if (pinEnabled &&
+        !current.pinEnabled &&
+        (pin == null || pin.trim().isEmpty)) {
+      throw StateError('Enter a PIN to enable PIN security.');
+    }
+    if (pinEnabled &&
+        pin != null &&
+        pin.trim().isNotEmpty &&
+        pin.trim().length < 4) {
+      throw StateError('PIN must be at least 4 digits.');
+    }
+
+    final api = _api;
+    if (api != null && api.isAuthenticated && currentUser?.uid == uid) {
+      _securitySettings[uid] = await api.updateSecuritySettings(
+        biometricsEnabled: biometricsEnabled,
+        pinEnabled: pinEnabled,
+        pin: pin,
+      );
+      _securityController.add(
+        Map<String, SecuritySettings>.of(_securitySettings),
+      );
+      return;
+    }
+
+    _securitySettings[uid] = SecuritySettings(
+      biometricsEnabled: biometricsEnabled,
+      pinEnabled: pinEnabled,
+    );
+    _securityController.add(
+      Map<String, SecuritySettings>.of(_securitySettings),
+    );
+  }
+
+  Stream<List<SupportTicket>> watchSupportTickets(String uid) {
+    if (currentUser?.uid == uid) {
+      _api?.supportTickets().then((tickets) {
+        _supportTickets[uid] = tickets;
+        _supportController.add(
+          Map<String, List<SupportTicket>>.of(_supportTickets),
+        );
+      }).ignore();
+    }
+
+    List<SupportTicket> select(Map<String, List<SupportTicket>> tickets) {
+      final list = List<SupportTicket>.of(
+        tickets[uid] ?? const <SupportTicket>[],
+      );
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    }
+
+    return _withInitial(
+      () => select(_supportTickets),
+      _supportController.stream.map(select),
+    );
+  }
+
+  Future<void> createSupportTicket(
+    String uid, {
+    required String subject,
+    required String message,
+  }) async {
+    final trimmedSubject = subject.trim();
+    final trimmedMessage = message.trim();
+    if (trimmedSubject.isEmpty || trimmedMessage.isEmpty) {
+      throw StateError('Subject and message are required.');
+    }
+
+    final api = _api;
+    if (api != null && api.isAuthenticated && currentUser?.uid == uid) {
+      await api.createSupportTicket(
+        subject: trimmedSubject,
+        message: trimmedMessage,
+      );
+      _supportTickets[uid] = await api.supportTickets();
+      _supportController.add(
+        Map<String, List<SupportTicket>>.of(_supportTickets),
+      );
+      return;
+    }
+
+    final list = _supportTickets.putIfAbsent(uid, () => <SupportTicket>[]);
+    list.add(
+      SupportTicket(
+        id: _genTicketId(),
+        subject: trimmedSubject,
+        message: trimmedMessage,
+        createdAt: DateTime.now(),
+      ),
+    );
+    _supportController.add(
+      Map<String, List<SupportTicket>>.of(_supportTickets),
+    );
+  }
+
+  // ===========================================================================
   // CLEANUP
   // ===========================================================================
 
@@ -1307,6 +1717,9 @@ class LocalDataService {
     _messagesController.close();
     _walletController.close();
     _notifsController.close();
+    _addressesController.close();
+    _securityController.close();
+    _supportController.close();
     _authController.close();
   }
 }

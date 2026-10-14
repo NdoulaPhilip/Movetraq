@@ -1,256 +1,201 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-
 import '../../models/parcel_order.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/app_page.dart';
 import '../../widgets/live_google_map.dart';
+import '../../widgets/map_geometry.dart';
 import '../../widgets/mini_map.dart';
-import '../../widgets/primary_button.dart';
+import '../orders/order_tools.dart';
 
-class LiveTrackingScreen extends StatelessWidget {
-  final String orderId;
+class LiveTrackingScreen extends StatefulWidget {
   const LiveTrackingScreen({super.key, required this.orderId});
-
+  final String orderId;
   @override
-  Widget build(BuildContext context) {
-    final data = context.read<LocalDataService>();
-
-    return Scaffold(
-      body: StreamBuilder<ParcelOrder?>(
-        stream: data.watchOrder(orderId),
-        builder: (context, snap) {
-          final order = snap.data;
-          if (order == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final courierLocation = order.courierLocation;
-          final arriving = order.status == OrderStatus.delivered;
-          // Stage index: 0 = picked up, 1 = at your door / in transit, 2 = delivered.
-          final stageIndex = switch (order.status) {
-            OrderStatus.delivered || OrderStatus.released => 2,
-            OrderStatus.pickedUp => 1,
-            _ => 0,
-          };
-
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: LiveGoogleMap(order: order),
-              ),
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      CircleIconButton(icon: Icons.arrow_back, onTap: () => Navigator.maybePop(context)),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.circle, size: 7, color: AppColors.accent),
-                          const SizedBox(width: 7),
-                          Text('${order.code} · Live', style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
-                        ]),
-                      ),
-                      const Spacer(),
-                      CircleIconButton(
-                        icon: Icons.ios_share,
-                        onTap: () async {
-                          await Clipboard.setData(
-                            ClipboardData(
-                              text:
-                                  'Track ${order.code} on MoveTraq. Courier: ${order.delivererName ?? "Courier"}.',
-                            ),
-                          );
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Tracking details copied.')),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              DraggableScrollableSheet(
-                initialChildSize: 0.4,
-                minChildSize: 0.32,
-                maxChildSize: 0.75,
-                builder: (context, controller) {
-                  return Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                    ),
-                    child: ListView(
-                      controller: controller,
-                      padding: const EdgeInsets.fromLTRB(22, 14, 22, 30),
-                      children: [
-                        Center(
-                          child: Container(width: 40, height: 4, decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(4))),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('ARRIVING IN', style: TextStyle(fontSize: 11, color: AppColors.muted, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
-                                const SizedBox(height: 2),
-                                Text(arriving ? 'Arriving' : '12 min',
-                                    style: const TextStyle(fontFamily: 'SpaceGrotesk', fontWeight: FontWeight.w700, fontSize: 26)),
-                              ],
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                const Text('Drop-off', style: TextStyle(fontSize: 11, color: AppColors.muted, fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 2),
-                                Text(order.dropoffAddress,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600), textAlign: TextAlign.right),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: courierLocation == null ? const Color(0xFFFBEADA) : const Color(0xFFDCF1E6),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                courierLocation == null ? Icons.location_searching : Icons.my_location,
-                                color: AppColors.ink,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  courierLocation == null
-                                      ? 'Waiting for courier GPS...'
-                                      : 'Courier GPS: ${courierLocation.latitude.toStringAsFixed(5)}, ${courierLocation.longitude.toStringAsFixed(5)}',
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.ink,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _ProgressTrack(stageIndex: stageIndex),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            const CircleAvatar(radius: 22, backgroundColor: Color(0xFF3A4250), child: Icon(Icons.person, color: Colors.white, size: 20)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(order.delivererName ?? 'Courier', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                                  const SizedBox(height: 2),
-                                  Row(children: const [
-                                    Icon(Icons.star, size: 13, color: AppColors.warning),
-                                    SizedBox(width: 4),
-                                    Text('4.8 · Bike · LAG 221', style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
-                                  ]),
-                                ],
-                              ),
-                            ),
-                            CircleIconButton(icon: Icons.chat_bubble_outline, background: const Color(0xFFF3F2EC), onTap: () => Navigator.pushNamed(context, '/chat', arguments: orderId)),
-                            const SizedBox(width: 8),
-                            CircleIconButton(
-                              icon: Icons.call_outlined,
-                              background: AppColors.ink,
-                              iconColor: Colors.white,
-                              onTap: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Calling ${order.delivererName ?? "your courier"} is not available in this prototype.'),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                        if (order.status == OrderStatus.delivered) ...[
-                          const SizedBox(height: 20),
-                          PrimaryButton(
-                            label: 'Release payment',
-                            background: AppColors.accent,
-                            foreground: AppColors.ink,
-                            onPressed: () => Navigator.pushNamed(context, '/release', arguments: orderId),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+  State<LiveTrackingScreen> createState() => _LiveTrackingScreenState();
 }
 
-class _ProgressTrack extends StatelessWidget {
-  final int stageIndex; // 0, 1, or 2
-  const _ProgressTrack({required this.stageIndex});
+class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
+  double _sheetExtent = .44;
+  late Stream<ParcelOrder?> _order;
+  String get orderId => widget.orderId;
 
   @override
-  Widget build(BuildContext context) {
-    const labels = ['Picked up', 'At your door', 'Delivered'];
-    final progress = stageIndex / 2;
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(100),
-          child: SizedBox(
-            height: 4,
-            child: Stack(
-              children: [
-                Container(color: AppColors.border),
-                FractionallySizedBox(
-                  widthFactor: progress.clamp(0.03, 1.0),
-                  child: Container(color: AppColors.accent),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(labels.length, (i) {
-            final active = i <= stageIndex;
-            return Text(
-              labels[i],
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: i == stageIndex ? FontWeight.w700 : FontWeight.w500,
-                color: active ? AppColors.ink : AppColors.faint,
-              ),
-            );
-          }),
-        ),
-      ],
-    );
+  void initState() {
+    super.initState();
+    _order = context.read<LocalDataService>().watchOrder(orderId);
   }
+
+  @override
+  void didUpdateWidget(covariant LiveTrackingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.orderId != orderId) {
+      _order = context.read<LocalDataService>().watchOrder(orderId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+      body: StreamBuilder<ParcelOrder?>(
+          stream: _order,
+          builder: (context, snapshot) {
+            final order = snapshot.data;
+            if (snapshot.hasError) {
+              return AppPage(
+                  title: 'Live tracking',
+                  children: [LoadError(error: snapshot.error!)]);
+            }
+            if (order == null &&
+                snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (order == null) {
+              return const AppPage(
+                  title: 'Live tracking',
+                  children: [InfoBand(title: 'Order unavailable')]);
+            }
+            final location = order.courierLocationIsSimulated
+                ? null
+                : mapPoint(order.courierLocation);
+            return LayoutBuilder(
+                builder: (context, constraints) => Stack(children: [
+                      Positioned.fill(
+                          child: LiveGoogleMap(
+                              order: order,
+                              bottomPadding:
+                                  constraints.maxHeight * _sheetExtent,
+                              topPadding:
+                                  MediaQuery.paddingOf(context).top + 70)),
+                      SafeArea(
+                          child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(children: [
+                                CircleIconButton(
+                                    icon: Icons.chevron_left,
+                                    onTap: () => Navigator.maybePop(context)),
+                                const Spacer(),
+                                CircleIconButton(
+                                    icon: Icons.ios_share_outlined,
+                                    onTap: () => Navigator.pushNamed(
+                                        context, '/share-order',
+                                        arguments: orderId)),
+                              ]))),
+                      NotificationListener<DraggableScrollableNotification>(
+                          onNotification: (notification) {
+                            if ((notification.extent - _sheetExtent).abs() >
+                                .005) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) {
+                                  setState(
+                                      () => _sheetExtent = notification.extent);
+                                }
+                              });
+                            }
+                            return false;
+                          },
+                          child: DraggableScrollableSheet(
+                              initialChildSize: .44,
+                              minChildSize: .28,
+                              maxChildSize: .85,
+                              builder: (context, controller) => Container(
+                                    decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.vertical(
+                                            top: Radius.circular(20))),
+                                    child: ListView(
+                                        controller: controller,
+                                        padding: const EdgeInsets.fromLTRB(
+                                            20, 12, 20, 24),
+                                        children: [
+                                          Center(
+                                              child: Container(
+                                                  width: 36,
+                                                  height: 4,
+                                                  decoration: BoxDecoration(
+                                                      color: AppColors.border,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              4)))),
+                                          const SizedBox(height: 18),
+                                          Text(orderStatusLabel(order.status),
+                                              style: const TextStyle(
+                                                  fontFamily: 'SpaceGrotesk',
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 22)),
+                                          const SizedBox(height: 8),
+                                          Text(order.code,
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: AppColors.muted)),
+                                          const SizedBox(height: 16),
+                                          DetailRow('Destination',
+                                              order.dropoffAddress),
+                                          const DetailRow(
+                                              'ETA', 'Not available'),
+                                          InfoBand(
+                                              title: location == null ||
+                                                      order
+                                                          .courierLocationIsSimulated
+                                                  ? 'Waiting for deliverer location'
+                                                  : 'Last reported location',
+                                              body: location == null
+                                                  ? null
+                                                  : '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}${order.courierLocationUpdatedAt == null ? '' : ' / ${order.courierLocationUpdatedAt!.toLocal()}'}',
+                                              icon: Icons.my_location),
+                                          RouteTile(
+                                              title: order.delivererName ??
+                                                  'Delivery contact',
+                                              icon: Icons.person_outline,
+                                              route: '/delivery-contact',
+                                              arguments: orderId),
+                                          Row(children: [
+                                            Expanded(
+                                                child: OutlinedButton.icon(
+                                                    onPressed: () =>
+                                                        Navigator.pushNamed(
+                                                            context, '/chat',
+                                                            arguments: orderId),
+                                                    icon: const Icon(Icons
+                                                        .chat_bubble_outline),
+                                                    label:
+                                                        const Text('Message'))),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                                child: OutlinedButton.icon(
+                                                    onPressed: () =>
+                                                        Navigator.pushNamed(
+                                                            context, '/call',
+                                                            arguments: orderId),
+                                                    icon: const Icon(
+                                                        Icons.call_outlined),
+                                                    label: const Text('Call')))
+                                          ]),
+                                          RouteTile(
+                                              title: 'Delivery details',
+                                              icon: Icons.inventory_2_outlined,
+                                              route: '/delivery-summary',
+                                              arguments: orderId),
+                                          RouteTile(
+                                              title: 'Report a problem',
+                                              icon: Icons.support_agent,
+                                              route: '/delivery-problem',
+                                              arguments: orderId),
+                                          if (order.status ==
+                                                  OrderStatus.delivered &&
+                                              order.senderId ==
+                                                  context
+                                                      .watch<AuthProvider>()
+                                                      .profile
+                                                      ?.uid)
+                                            RouteTile(
+                                                title: 'Confirm delivery',
+                                                icon: Icons.verified_outlined,
+                                                route: '/release',
+                                                arguments: orderId),
+                                        ]),
+                                  ))),
+                    ]));
+          }));
 }

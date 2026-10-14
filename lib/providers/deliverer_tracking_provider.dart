@@ -57,6 +57,7 @@ class DelivererTrackingProvider extends ChangeNotifier {
 
     _activeDeliveryId = deliveryId;
     _isTracking = true;
+    _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
@@ -72,15 +73,18 @@ class DelivererTrackingProvider extends ChangeNotifier {
         position.latitude,
         position.longitude,
       );
+      _isLoading = false;
       notifyListeners();
     } catch (error) {
-      _errorMessage = 'Initial location sync failed: $error';
+      _isLoading = false;
+      _errorMessage = 'Live GPS is unavailable: $error';
       notifyListeners();
     }
 
     _positionSubscription = _locationService.watchPosition().listen(
       (Position position) async {
         _position = position;
+        _isLoading = false;
         _errorMessage = null;
         notifyListeners();
 
@@ -100,8 +104,9 @@ class DelivererTrackingProvider extends ChangeNotifier {
         }
       },
       onError: (Object error) {
-        _errorMessage = error.toString();
-        _isTracking = false;
+        _errorMessage = 'Live GPS is unavailable: $error';
+        _isLoading = false;
+        _isTracking = true;
         notifyListeners();
       },
     );
@@ -112,6 +117,7 @@ class DelivererTrackingProvider extends ChangeNotifier {
     _positionSubscription = null;
     _activeDeliveryId = null;
     _isTracking = false;
+    _isLoading = false;
     notifyListeners();
   }
 

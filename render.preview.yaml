@@ -1,0 +1,49 @@
+# Initial API/admin deployment; no paid background worker is provisioned here.
+# Apply migrations as a controlled release step before verifying /ready.
+services:
+  - type: web
+    name: movetraq-api
+    runtime: node
+    plan: free
+    buildCommand: cd backend && npm ci --include=dev && npm run build
+    startCommand: cd backend && npm start
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_TLS
+        value: true
+      - key: DATABASE_CA_CERT_BASE64
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+  - type: web
+    name: movetraq-admin
+    runtime: static
+    buildCommand: cd admin && npm ci --include=dev && npm run build
+    staticPublishPath: admin/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

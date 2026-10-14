@@ -58,8 +58,13 @@ class AuthProvider extends ChangeNotifier {
   }
 
   String _friendlyError(Object e) {
-    final message = e.toString().replaceFirst('StateError: ', '').replaceFirst('Exception: ', '');
-    return message.isEmpty ? 'Something went wrong. Please try again.' : message;
+    final message = e
+        .toString()
+        .replaceFirst('StateError: ', '')
+        .replaceFirst('Exception: ', '');
+    return message.isEmpty
+        ? 'Something went wrong. Please try again.'
+        : message;
   }
 
   Future<bool> signUp({
@@ -69,11 +74,13 @@ class AuthProvider extends ChangeNotifier {
     required String password,
   }) {
     return _guard(() async {
-      await _data.signUp(name: name, email: email, phone: phone, password: password);
+      await _data.signUp(
+          name: name, email: email, phone: phone, password: password);
     });
   }
 
-  Future<bool> signIn({required String emailOrPhone, required String password}) {
+  Future<bool> signIn(
+      {required String emailOrPhone, required String password}) {
     return _guard(() async {
       await _data.signIn(emailOrPhone: emailOrPhone, password: password);
     });
@@ -98,6 +105,20 @@ class AuthProvider extends ChangeNotifier {
           ? UserRole.deliverer
           : UserRole.sender;
       await _data.updateRole(profile!.uid, next);
+    });
+  }
+
+  Future<bool> updateProfile({
+    required String name,
+    required String phone,
+  }) {
+    return _guard(() async {
+      if (profile == null) return;
+      await _data.updateProfile(
+        uid: profile!.uid,
+        name: name,
+        phone: phone,
+      );
     });
   }
 

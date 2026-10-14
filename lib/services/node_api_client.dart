@@ -41,21 +41,51 @@ class AddressSuggestion {
   }
 }
 
+class HomeContext {
+  const HomeContext({
+    required this.greeting,
+    required this.period,
+    required this.serverTime,
+    required this.timezone,
+  });
+
+  final String greeting;
+  final String period;
+  final DateTime serverTime;
+  final String timezone;
+
+  factory HomeContext.fromJson(Map<String, dynamic> json) {
+    return HomeContext(
+      greeting: json['greeting'] as String? ?? 'Good day',
+      period: json['period'] as String? ?? 'day',
+      serverTime: DateTime.tryParse(json['serverTime'] as String? ?? '') ??
+          DateTime.now(),
+      timezone: json['timezone'] as String? ?? '',
+    );
+  }
+}
+
 class NodeApiClient {
   NodeApiClient({
     http.Client? client,
     String? baseUrl,
   })  : _client = client ?? http.Client(),
-        baseUrl = baseUrl ?? const String.fromEnvironment(
-          'MOVETRAQ_API_URL',
-          defaultValue: 'https://movetraq-api.onrender.com',
-        );
+        baseUrl = baseUrl ??
+            const String.fromEnvironment(
+              'MOVETRAQ_API_URL',
+              defaultValue: 'https://movetraq-api.onrender.com',
+            );
 
   final http.Client _client;
   final String baseUrl;
   String? _token;
 
   bool get isAuthenticated => _token != null;
+
+  Future<HomeContext> homeContext() async {
+    final data = await _get('/home/context');
+    return HomeContext.fromJson(data);
+  }
 
   Future<AppUser> signUp({
     required String name,
@@ -112,6 +142,17 @@ class NodeApiClient {
     return AppUser.fromJson(data['user'] as Map<String, dynamic>);
   }
 
+  Future<AppUser> updateProfile({
+    required String name,
+    required String phone,
+  }) async {
+    final data = await _patch('/users/me', {
+      'name': name,
+      'phone': phone,
+    });
+    return AppUser.fromJson(data['user'] as Map<String, dynamic>);
+  }
+
   Future<AppUser> setDelivererOnline(bool online) async {
     final data = await _patch('/users/me', {
       'delivererOnline': online,
@@ -142,6 +183,14 @@ class NodeApiClient {
         .cast<Map<String, dynamic>>()
         .map(AddressSuggestion.fromJson)
         .toList();
+  }
+
+  Future<AddressSuggestion> geocodeAddress(String query) async {
+    final encoded = Uri.encodeQueryComponent(query);
+    final data = await _get('/places/geocode?q=$encoded');
+    return AddressSuggestion.fromJson(
+      data['location'] as Map<String, dynamic>,
+    );
   }
 
   Future<List<ParcelOrder>> orders() async {
@@ -216,6 +265,11 @@ class NodeApiClient {
   Future<ParcelOrder> cancelOrder(String orderId) async {
     final data = await _post('/orders/$orderId/cancel', {});
     return ParcelOrder.fromJson(data['order'] as Map<String, dynamic>);
+  }
+
+  Future<AppUser> orderContact(String orderId) async {
+    final data = await _get('/orders/$orderId/contact');
+    return AppUser.fromJson(data['contact'] as Map<String, dynamic>);
   }
 
   Future<List<ChatMessage>> messages(String orderId) async {
@@ -310,8 +364,78 @@ class NodeApiClient {
     await _post('/notifications/$notifId/read', {});
   }
 
+  Future<List<SavedAddress>> savedAddresses() async {
+    final data = await _get('/users/me/addresses');
+    return (data['addresses'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(SavedAddress.fromJson)
+        .toList();
+  }
+
+  Future<SavedAddress> saveAddress({
+    String? id,
+    required String label,
+    required String address,
+  }) async {
+    final data = await _post('/users/me/addresses', {
+      'id': id,
+      'label': label,
+      'address': address,
+    });
+    return SavedAddress.fromJson(data['address'] as Map<String, dynamic>);
+  }
+
+  Future<void> deleteAddress(String id) async {
+    await _post('/users/me/addresses/$id/delete', {});
+  }
+
+  Future<SecuritySettings> securitySettings() async {
+    final data = await _get('/users/me/security');
+    return SecuritySettings.fromJson(data['settings'] as Map<String, dynamic>);
+  }
+
+  Future<SecuritySettings> updateSecuritySettings({
+    required bool biometricsEnabled,
+    required bool pinEnabled,
+    String? pin,
+  }) async {
+    final data = await _patch('/users/me/security', {
+      'biometricsEnabled': biometricsEnabled,
+      'pinEnabled': pinEnabled,
+      'pin': pin,
+    });
+    return SecuritySettings.fromJson(data['settings'] as Map<String, dynamic>);
+  }
+
+  Future<List<SupportTicket>> supportTickets() async {
+    final data = await _get('/support/tickets');
+    return (data['tickets'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(SupportTicket.fromJson)
+        .toList();
+  }
+
+  Future<SupportTicket> createSupportTicket({
+    required String subject,
+    required String message,
+  }) async {
+    final data = await _post('/support/tickets', {
+      'subject': subject,
+      'message': message,
+    });
+    return SupportTicket.fromJson(data['ticket'] as Map<String, dynamic>);
+  }
+
   Future<Map<String, dynamic>> _get(String path) {
     return _send('GET', path);
+  }
+
+  Future<Map<String, dynamic>> extendedRequest(String method, String path,
+      {Map<String, dynamic>? body}) async {
+    final response = await _send(method, '/api/v1$path', body: body);
+    return response['data'] is Map<String, dynamic>
+        ? response['data'] as Map<String, dynamic>
+        : response;
   }
 
   Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) {
@@ -353,8 +477,11 @@ class NodeApiClient {
         : jsonDecode(response.body) as Map<String, dynamic>;
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      final error = decoded['error'];
       throw NodeApiException(
-        decoded['error'] as String? ?? 'Node API request failed.',
+        error is Map<String, dynamic>
+            ? error['message']?.toString() ?? 'Node API request failed.'
+            : error?.toString() ?? 'Node API request failed.',
       );
     }
 

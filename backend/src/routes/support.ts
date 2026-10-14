@@ -1,0 +1,17 @@
+import { Router } from 'express';
+import { requireAuth, requireAdminRole } from '../middleware/auth.js';
+import * as controller from '../controllers/support-controller.js';
+export const supportRouter = Router();
+supportRouter.get('/support/cases', requireAuth, controller.list);
+supportRouter.post('/support/cases', requireAuth, controller.open);
+supportRouter.get('/admin/support/cases', requireAuth, requireAdminRole('support','operations','finance','admin','super_admin'), controller.queue);
+supportRouter.post('/admin/support/cases/:id/review', requireAuth, requireAdminRole('support','operations','admin','super_admin'), controller.review);
+supportRouter.post('/orders/:id/returns', requireAuth, controller.requestReturn);
+supportRouter.get('/orders/:id/returns', requireAuth, controller.getReturn);
+supportRouter.post('/admin/orders/:id/returns/approve', requireAuth, requireAdminRole('support','operations','admin','super_admin'), controller.approveReturn);
+supportRouter.post('/admin/orders/:id/dispute-settlement', requireAuth, requireAdminRole('finance','admin','super_admin'), controller.settle);
+supportRouter.post('/orders/:id/evidence/uploads', requireAuth, controller.reserveEvidence);
+supportRouter.post('/evidence/uploads/:id/confirm', requireAuth, controller.confirmEvidence);
+supportRouter.get('/orders/:id/evidence', requireAuth, controller.evidenceHistory);
+supportRouter.get('/evidence/:id/download', requireAuth, controller.downloadEvidence);
+supportRouter.post('/orders/:id/ratings', requireAuth, controller.rate);

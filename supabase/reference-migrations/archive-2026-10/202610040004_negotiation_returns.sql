@@ -1,0 +1,15 @@
+begin;
+alter table delivery_offers add column proposed_by uuid references profiles(id);
+alter table delivery_offers add column deliverer_agreed boolean not null default true;
+create table offer_history(id uuid primary key default gen_random_uuid(),offer_id uuid not null references delivery_offers(id),actor_id uuid not null references profiles(id),amount_minor bigint not null check(amount_minor>0),action text not null,created_at timestamptz not null default now());
+alter table offer_history enable row level security;
+revoke all on offer_history from anon,authenticated;
+grant select on offer_history to authenticated;
+create policy participant_offer_history on offer_history for select to authenticated using(exists(select 1 from delivery_offers o where o.id=offer_id and (o.deliverer_id=auth.uid() or participates(o.order_id))));
+create table order_returns(id uuid primary key default gen_random_uuid(),order_id uuid unique not null references orders(id),requested_by uuid not null references profiles(id),reason text not null,previous_status order_status not null,status text not null default 'return_requested' check(status in ('return_requested','return_approved','returning','returned','rejected')),approved_by uuid references profiles(id),recipient_name text,code_verified boolean not null default false,upload_id uuid references uploads(id),created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+alter table order_returns enable row level security;
+revoke all on order_returns from anon,authenticated;
+grant select on order_returns to authenticated;
+create policy participant_return on order_returns for select to authenticated using(participates(order_id));
+do $$ begin if exists(select 1 from pg_publication where pubname='supabase_realtime') then alter publication supabase_realtime add table delivery_offers;end if;end $$;
+commit;

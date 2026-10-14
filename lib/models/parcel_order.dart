@@ -34,6 +34,16 @@ class LatLng {
       'longitude': longitude,
     };
   }
+
+  @override
+  bool operator ==(Object other) {
+    return other is LatLng &&
+        other.latitude == latitude &&
+        other.longitude == longitude;
+  }
+
+  @override
+  int get hashCode => Object.hash(latitude, longitude);
 }
 
 class ParcelOrder {
@@ -50,6 +60,9 @@ class ParcelOrder {
   final LatLng? pickupLocation;
   final LatLng? dropoffLocation;
   LatLng? courierLocation; // live location, updated by deliverer
+  final DateTime? courierLocationUpdatedAt;
+  final List<LatLng> courierLocationTrail;
+  final bool courierLocationIsSimulated;
   final double price;
   final double payout; // what the deliverer earns
   final bool isExpress;
@@ -63,7 +76,8 @@ class ParcelOrder {
   final DateTime createdAt;
   final DateTime? deliveredAt;
   final DateTime? releasedAt;
-  final int dStage; // 0 heading to pickup, 1 delivering, 2 delivered (deliverer view)
+  final int
+      dStage; // 0 heading to pickup, 1 delivering, 2 delivered (deliverer view)
 
   ParcelOrder({
     required this.id,
@@ -79,6 +93,9 @@ class ParcelOrder {
     this.pickupLocation,
     this.dropoffLocation,
     this.courierLocation,
+    this.courierLocationUpdatedAt,
+    this.courierLocationTrail = const [],
+    this.courierLocationIsSimulated = false,
     required this.price,
     required this.payout,
     this.isExpress = false,
@@ -104,6 +121,20 @@ class ParcelOrder {
       return null;
     }
 
+    List<LatLng> readLatLngList(String key) {
+      final value = json[key];
+      if (value is! List) return const [];
+      return value
+          .whereType<Map<String, dynamic>>()
+          .map(LatLng.fromJson)
+          .toList();
+    }
+
+    final courierLocationIsSimulated =
+        json['courierLocationIsSimulated'] as bool? ??
+            json['simulatedLocation'] as bool? ??
+            false;
+
     return ParcelOrder(
       id: json['id'] as String? ?? '',
       code: json['code'] as String? ?? '',
@@ -117,7 +148,16 @@ class ParcelOrder {
       dropoffAddress: json['dropoffAddress'] as String? ?? '',
       pickupLocation: readLatLng('pickupLocation'),
       dropoffLocation: readLatLng('dropoffLocation'),
-      courierLocation: readLatLng('courierLocation'),
+      courierLocation:
+          courierLocationIsSimulated ? null : readLatLng('courierLocation'),
+      courierLocationUpdatedAt:
+          json['courierLocationUpdatedAt'] == null
+              ? null
+              : DateTime.tryParse(json['courierLocationUpdatedAt'] as String),
+      courierLocationTrail: courierLocationIsSimulated
+          ? const []
+          : readLatLngList('courierLocationTrail'),
+      courierLocationIsSimulated: courierLocationIsSimulated,
       price: (json['price'] as num?)?.toDouble() ?? 0,
       payout: (json['payout'] as num?)?.toDouble() ?? 0,
       isExpress: json['isExpress'] as bool? ?? false,
@@ -155,6 +195,11 @@ class ParcelOrder {
       'pickupLocation': pickupLocation?.toJson(),
       'dropoffLocation': dropoffLocation?.toJson(),
       'courierLocation': courierLocation?.toJson(),
+      'courierLocationUpdatedAt': courierLocationUpdatedAt?.toIso8601String(),
+      'courierLocationTrail':
+          courierLocationTrail.map((point) => point.toJson()).toList(),
+      'courierLocationIsSimulated': courierLocationIsSimulated,
+      'simulatedLocation': courierLocationIsSimulated,
       'price': price,
       'payout': payout,
       'isExpress': isExpress,
@@ -176,6 +221,9 @@ class ParcelOrder {
     String? delivererId,
     String? delivererName,
     LatLng? courierLocation,
+    DateTime? courierLocationUpdatedAt,
+    List<LatLng>? courierLocationTrail,
+    bool? courierLocationIsSimulated,
     double? price,
     double? payout,
     OrderStatus? status,
@@ -197,6 +245,12 @@ class ParcelOrder {
       pickupLocation: pickupLocation,
       dropoffLocation: dropoffLocation,
       courierLocation: courierLocation ?? this.courierLocation,
+      courierLocationUpdatedAt:
+          courierLocationUpdatedAt ?? this.courierLocationUpdatedAt,
+      courierLocationTrail:
+          courierLocationTrail ?? this.courierLocationTrail,
+      courierLocationIsSimulated:
+          courierLocationIsSimulated ?? this.courierLocationIsSimulated,
       price: price ?? this.price,
       payout: payout ?? this.payout,
       isExpress: isExpress,
