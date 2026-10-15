@@ -4,6 +4,7 @@ const http = require('http');
 const path = require('path');
 const { Pool } = require('pg');
 const { WalletPayments, PaymentError, minorUnits, validSignature, validReference } = require('./payments');
+const monitoring = require('./monitoring');
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -124,6 +125,7 @@ async function connectPostgres() {
   `);
   usePostgres = true;
   await pgPool.query(fs.readFileSync(path.join(__dirname, '..', 'migrations', '0001_paystack_wallet.sql'), 'utf8'));
+  await pgPool.query(fs.readFileSync(path.join(__dirname, '..', 'migrations', '0002_mobile_monitoring.sql'), 'utf8'));
   console.log('MoveTraq API connected to PostgreSQL');
 }
 
@@ -251,6 +253,8 @@ function id(prefix) {
 }
 
 function json(res, status, body) {
+  res.auditStatus = status;
+  res.auditResult = {actor:body?.user?.uid,reference:body?.reference,order:body?.order?.id};
   const origin = res.req?.headers?.origin;
   const allowOrigin =
     allowedOrigins.includes('*') || !origin || allowedOrigins.includes(origin)
@@ -264,6 +268,7 @@ function json(res, status, body) {
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'cache-control': 'no-store',
+    'x-request-id': res.req?.requestId || '',
   });
   res.end(JSON.stringify(body));
 }
@@ -803,6 +808,18 @@ async function handleRequest(req, res) {
       return;
     }
 
+    if (req.method === 'GET' && path === '/internal/monitoring') {
+      if (!rateLimit(req, res, 'internal:monitoring', 120, 60 * 1000)) return;
+      if (!monitoring.authorized(req.headers.authorization, process.env.MONITORING_SERVICE_TOKEN)) {
+        json(res, 401, { error: 'Monitoring access denied.' }); return;
+      }
+      const staff = req.headers['x-monitoring-staff'];
+      if (typeof staff !== 'string' || !/^[0-9a-f-]{36}$/i.test(staff)) { json(res, 403, { error: 'Staff identity required.' }); return; }
+      if (!usePostgres) { json(res, 503, { error: 'Persistent monitoring unavailable.' }); return; }
+      await pgPool.query(`insert into mobile_request_attempts(id,staff_id,method,route,category,status,outcome,finished_at)
+        values($1,$2,'GET','/internal/monitoring','security',200,'successful',now())`,[crypto.randomUUID(),staff]);
+      json(res, 200, await monitoring.monitoringData(pgPool, url.searchParams)); return;
+    }
     if (req.method === 'GET' && path === '/health') {
       json(res, 200, { ok: true });
       return;
@@ -1630,6 +1647,8 @@ async function lockedStore(action) {
   }
 }
 const server = http.createServer((req, res) => {
+  req.requestId = crypto.randomUUID();
+  res.req = req;
   if (['POST', 'PATCH'].includes(req.method)) {
     req.rawBody = readRawBody(req);
     req.rawBody.catch(() => {});
@@ -1638,10 +1657,22 @@ const server = http.createServer((req, res) => {
     '/payments/config',
     '/payments/paystack/return', '/payments/paystack/cancel'].includes(req.url?.split('?')[0]));
   if (simple) { handleRequest(req, res); return; }
-  const action = () => lockedStore(() => handleRequest(req, res));
+  const action = () => lockedStore(async () => {
+    let attempt;
+    if (usePostgres && req.method !== 'OPTIONS' && !req.url?.startsWith('/internal/')) {
+      attempt = await monitoring.beginAttempt(pgPool, req, authUser(req)?.uid);
+    }
+    try { await handleRequest(req, res); }
+    finally {
+      if (attempt) await monitoring.finishAttempt(pgPool, attempt, res.auditStatus || 500, res.auditResult);
+    }
+  });
   const task = requestQueue.then(action, action);
   requestQueue = task.catch(() => {});
-  task.catch(() => { if (!res.writableEnded) json(res, 503, { error: 'Wallet data is temporarily unavailable. Please retry.' }); });
+  task.catch(() => {
+    console.error(JSON.stringify({event:'mobile_request_persistence_unavailable',requestId:req.requestId}));
+    if (!res.writableEnded) json(res, 503, { error: 'Wallet data is temporarily unavailable. Please retry.', requestId:req.requestId });
+  });
 });
 
 async function start() {
@@ -1651,6 +1682,18 @@ async function start() {
   if (isProduction && !databaseUrl) throw new Error('Persistent PostgreSQL is required in production.');
   await connectPostgres();
   await lockedStore(() => saveStore());
+  if (usePostgres) {
+    let running = false;
+    setInterval(() => {
+      if (running) return;
+      try { walletPayments().ready(); } catch { return; }
+      running = true;
+      const task = requestQueue.then(() => lockedStore(() => monitoring.reconcilePending(pgPool, walletPayments())));
+      requestQueue = task.catch(() => {});
+      void task.catch(() => console.error(JSON.stringify({event:'payment_reconciliation_unavailable'})))
+        .finally(() => { running = false; });
+    }, 60000).unref();
+  }
 
   server.listen(port, () => {
     console.log(`MoveTraq API listening on http://localhost:${port}`);

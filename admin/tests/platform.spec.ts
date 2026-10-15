@@ -8,6 +8,7 @@ test('Super Admin manages accounts and inspects activity without layout overflow
     const path=new URL(route.request().url()).pathname;
     const method=route.request().method();let data:unknown={};
     if(path.endsWith('/auth/signin'))data={user:{uid:'super-1',name:'Super Admin',email:'owner@example.test',roles:['super_admin']},session:{accessToken:'test-only',refreshToken:'test-only-refresh',expiresAt:9999999999}};
+    else if(path.endsWith('/mobile/monitoring'))data={source:'mobile_postgres',rows:[],total:0,stats:{},checkedAt:'2026-10-15T11:00:00Z'};
     else if(path.endsWith('/analytics'))data={totalUsers:42,enabledUsers:40,suspendedUsers:2,administrators:3,newRegistrations:4,onlineVerifiedDeliverers:8,activeUsers7d:24};
     else if(path.endsWith('/stream')) {expect(route.request().headers().authorization).toBe('Bearer test-only');await route.fulfill({contentType:'text/event-stream',body:'event: ready\ndata: {}\n\nevent: invalidate\ndata: {}\n\n'});return;}
     else if(path.endsWith('/metrics'))data={totalOrders:10,pendingPayments:2,series:Array.from({length:14},(_,i)=>({day:`2026-10-${String(i+1).padStart(2,'0')}`,orders:i,payments:1,revenue_minor:'10000',users:2}))};
@@ -18,6 +19,7 @@ test('Super Admin manages accounts and inspects activity without layout overflow
     await route.fulfill({json:{success:true,data}});
   });
   await page.goto('/');await page.getByLabel('Email',{exact:true}).fill('owner@example.test');await page.getByLabel('Password',{exact:true}).fill('test-password');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await page.getByLabel('Data source',{exact:true}).selectOption('supabase');
   await expect(page.getByRole('heading',{name:'Platform Activity'})).toBeVisible();
   await expect(page.getByText('42',{exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Verified payments',exact:true})).toBeVisible();
@@ -27,6 +29,7 @@ test('Super Admin manages accounts and inspects activity without layout overflow
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:info.outputPath('platform-monitoring.png'),fullPage:true});
   await page.getByRole('button',{name:'Users',exact:true}).click();
+  await page.getByLabel('Data source',{exact:true}).selectOption('supabase');
   await page.getByRole('button',{name:'Delivery Customer',exact:true}).click();
   await page.getByRole('checkbox',{name:'admin',exact:true}).check();
   await page.getByLabel('Reason').fill('Grant operations access');

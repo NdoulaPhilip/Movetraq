@@ -64,8 +64,14 @@ class WalletPayments {
     const callbacks = { callbackUrl: `${origin}/payments/paystack/return`, cancelUrl: `${origin}/payments/paystack/cancel` };
     if (payment.status === 'verified') return { reference, status: 'verified', checkoutUrl: null, ...callbacks };
     if (payment.checkout_url) return { reference, checkoutUrl: payment.checkout_url, testMode: this.secret.startsWith('sk_test_'), ...callbacks };
-    const initialized = await this.provider('/transaction/initialize', { email: user.email, amount: amountMinor, currency: 'NGN',
-      reference, callback_url: callbacks.callbackUrl, metadata: { cancel_action: callbacks.cancelUrl } });
+    let initialized;
+    try {
+      initialized = await this.provider('/transaction/initialize', { email: user.email, amount: amountMinor, currency: 'NGN',
+        reference, callback_url: callbacks.callbackUrl, metadata: { cancel_action: callbacks.cancelUrl } });
+    } catch (error) {
+      await this.pool.query("update legacy_wallet_topups set last_error_code='INITIALIZATION_UNAVAILABLE',last_checked_at=now() where reference=$1 and status<>'verified'",[reference]);
+      throw error;
+    }
     let checkout;
     try { checkout = new URL(initialized.authorization_url); } catch { throw new PaymentError(503, 'Invalid Paystack checkout response.'); }
     if (initialized.reference !== reference || checkout.origin !== 'https://checkout.paystack.com' || checkout.username || checkout.password || checkout.hash || checkout.pathname.length < 2) {
@@ -80,12 +86,22 @@ class WalletPayments {
     const payment = (await this.pool.query('select * from legacy_wallet_topups where reference=$1', [reference])).rows[0];
     if (!payment || (owner !== undefined && payment.user_id !== owner)) throw new PaymentError(404, 'Payment was not found.');
     if (payment.status === 'verified') return { reference, status: 'verified', userId: payment.user_id };
-    const verified = await this.provider(`/transaction/verify/${encodeURIComponent(reference)}`);
+    let verified;
+    try { verified = await this.provider(`/transaction/verify/${encodeURIComponent(reference)}`); }
+    catch (error) {
+      await this.pool.query("update legacy_wallet_topups set last_error_code='VERIFICATION_UNAVAILABLE',last_checked_at=now() where reference=$1 and status<>'verified'",[reference]);
+      throw error;
+    }
     if (verified.reference !== reference || !Number.isSafeInteger(verified.amount)
       || verified.amount !== payment.amount_minor || verified.currency !== 'NGN') {
+      await this.pool.query("update legacy_wallet_topups set last_error_code='PROVIDER_MISMATCH',last_checked_at=now() where reference=$1 and status<>'verified'",[reference]);
       throw new PaymentError(409, 'Paystack payment amount, currency or reference does not match.');
     }
-    if (verified.status !== 'success') return { reference, status: 'pending' };
+    if (verified.status !== 'success') {
+      const status = ['failed','abandoned','reversed','pending','ongoing','processing','queued'].includes(verified.status) ? verified.status : 'unknown';
+      await this.pool.query("update legacy_wallet_topups set provider_status=$2,last_checked_at=now(),last_error_code=null where reference=$1 and status<>'verified'",[reference,status]);
+      return { reference, status: 'pending', providerStatus: status };
+    }
     return transaction(this.pool, async db => {
       const user = (await db.query('select data from users where uid=$1 for update', [payment.user_id])).rows[0]?.data;
       const current = (await db.query('select * from legacy_wallet_topups where reference=$1 for update', [reference])).rows[0];
@@ -103,7 +119,7 @@ class WalletPayments {
         await db.query('update users set data=$2::jsonb,updated_at=now() where uid=$1', [payment.user_id, JSON.stringify(user)]);
         await db.query(`insert into wallet_transactions(user_id,data) values($1,jsonb_build_array($2::jsonb))
           on conflict(user_id) do update set data=wallet_transactions.data||excluded.data,updated_at=now()`, [payment.user_id, JSON.stringify(item)]);
-        await db.query(`update legacy_wallet_topups set status='verified',verified_at=now() where reference=$1`, [reference]);
+        await db.query(`update legacy_wallet_topups set status='verified',provider_status='success',last_checked_at=now(),last_error_code=null,verified_at=now() where reference=$1`, [reference]);
       }
       return { reference, status: 'verified', userId: payment.user_id };
     });

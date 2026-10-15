@@ -18,6 +18,8 @@ services:
         sync: false
       - key: PAYMENT_SECRET_KEY
         sync: false
+      - key: MONITORING_SERVICE_TOKEN
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL

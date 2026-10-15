@@ -20,6 +20,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default('info'),
   AUTH_REDIRECT_URL: z.string().url().optional(),
   ADMIN_INVITE_REDIRECT_URL: z.string().url().optional(),
+  MOBILE_MONITORING_URL: z.string().url().optional(),
+  MONITORING_SERVICE_TOKEN: z.string().min(32).optional(),
 });
 
 export const env = envSchema.parse(process.env);

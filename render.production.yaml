@@ -35,6 +35,10 @@ services:
         sync: false
       - key: PAYMENT_CALLBACK_URL
         sync: false
+      - key: MOBILE_MONITORING_URL
+        value: https://movetraq-api.onrender.com
+      - key: MONITORING_SERVICE_TOKEN
+        sync: false
   - type: web
     name: movetraq-production-admin
     runtime: static

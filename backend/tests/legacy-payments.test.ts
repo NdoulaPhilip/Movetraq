@@ -18,6 +18,9 @@ beforeEach(async () => {
     create table wallet_transactions(user_id text primary key,data jsonb not null,updated_at timestamptz default now());
     insert into users(uid,data) values('legacy-sender','{"uid":"legacy-sender","walletBalance":500}');`);
   await database.exec(readFileSync(new URL('../../server/migrations/0001_paystack_wallet.sql', import.meta.url), 'utf8'));
+  await database.exec(`create table orders(id text primary key,data jsonb);create table order_messages(order_id text primary key,data jsonb);
+    ${['notifications','saved_addresses','security_settings','support_tickets'].map(table=>`create table ${table}(user_id text primary key,data jsonb);`).join('')}`);
+  await database.exec(readFileSync(new URL('../../server/migrations/0002_mobile_monitoring.sql', import.meta.url), 'utf8'));
   let queue = Promise.resolve();
   const pool = {
     query: (sql: string, values?: unknown[]) => database.query(sql, values),
