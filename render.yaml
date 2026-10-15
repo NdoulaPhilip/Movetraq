@@ -10,6 +10,14 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: NODE_ENV
+        value: production
+      - key: DISABLE_TEST_WALLET_TOPUPS
+        value: "true"
+      - key: MOVETRAQ_PUBLIC_API_URL
+        sync: false
+      - key: PAYMENT_SECRET_KEY
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL

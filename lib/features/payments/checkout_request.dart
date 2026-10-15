@@ -1,6 +1,7 @@
 class CheckoutRequest {
   CheckoutRequest.fromJson(Map<String, dynamic> data)
       : url = Uri.parse(data['checkoutUrl'] as String),
+        testMode = data['testMode'] == true,
         reference = data['reference'] as String,
         callback = data['callbackUrl'] is String
             ? Uri.tryParse(data['callbackUrl'] as String)
@@ -28,6 +29,7 @@ class CheckoutRequest {
     }
   }
   final Uri url;
+  final bool testMode;
   final String reference;
   final Uri? callback, cancel;
   bool _matches(Uri uri, Uri? target) =>

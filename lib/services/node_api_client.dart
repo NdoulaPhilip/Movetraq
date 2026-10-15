@@ -82,6 +82,18 @@ class NodeApiClient {
 
   bool get isAuthenticated => _token != null;
 
+  Future<Map<String, dynamic>> initializeWalletTopup(
+          int amountMinor, String key) =>
+      _send('POST', '/payments/topups',
+          body: {'amountMinor': amountMinor},
+          headers: {'Idempotency-Key': key});
+  Future<Map<String, dynamic>> verifyWalletTopup(String reference) {
+    if (!RegExp(r'^mt-[a-f0-9]{64}$').hasMatch(reference)) {
+      throw NodeApiException('Invalid payment reference.');
+    }
+    return _post('/payments/$reference/verify', {});
+  }
+
   Future<HomeContext> homeContext() async {
     final data = await _get('/home/context');
     return HomeContext.fromJson(data);
@@ -450,10 +462,12 @@ class NodeApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String> headers = const {},
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     final request = http.Request(method, uri)
-      ..headers['content-type'] = 'application/json';
+      ..headers['content-type'] = 'application/json'
+      ..headers.addAll(headers);
     if (_token != null) {
       request.headers['authorization'] = 'Bearer $_token';
     }

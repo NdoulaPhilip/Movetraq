@@ -7,9 +7,11 @@ import 'checkout_request.dart';
 
 class PaystackCheckoutScreen extends StatefulWidget {
   const PaystackCheckoutScreen(
-      {super.key, required this.request, required this.api});
+      {super.key, required this.request, this.api, this.verifyPayment})
+      : assert(api != null || verifyPayment != null);
   final CheckoutRequest request;
-  final ApiClient api;
+  final ApiClient? api;
+  final Future<Map<String, dynamic>> Function(String reference)? verifyPayment;
   @override
   State<PaystackCheckoutScreen> createState() => _PaystackCheckoutState();
 }
@@ -70,9 +72,11 @@ class _PaystackCheckoutState extends State<PaystackCheckoutScreen> {
       _notice = null;
     });
     try {
-      final result = await widget.api.request(
-          '/payments/${widget.request.reference}/verify',
-          method: 'POST');
+      final result = widget.verifyPayment != null
+          ? await widget.verifyPayment!(widget.request.reference)
+          : await widget.api!.request(
+              '/payments/${widget.request.reference}/verify',
+              method: 'POST');
       if (!mounted) return false;
       if (result['status'] == 'verified' &&
           result['reference'] == widget.request.reference) {
@@ -127,7 +131,9 @@ class _PaystackCheckoutState extends State<PaystackCheckoutScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-            title: const Text('Secure payment'),
+            title: Text(widget.request.testMode
+                ? 'Paystack test payment'
+                : 'Secure payment'),
             leading: IconButton(
                 tooltip: 'Close checkout',
                 onPressed: _verifying ? null : _leave,

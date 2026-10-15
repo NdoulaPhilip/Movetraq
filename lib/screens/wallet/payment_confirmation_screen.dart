@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/primary_button.dart';
@@ -42,9 +41,9 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
       _status = null;
     });
     try {
-      final result = await FeatureGateway(context.read<LocalDataService>())
-          .request('Payment verification', 'POST',
-              '/payments/${Uri.encodeComponent(_reference.text.trim())}/verify');
+      final result = await context
+          .read<LocalDataService>()
+          .verifyWalletTopup(_reference.text.trim());
       final status = result['status'];
       if (status is! String || status.isEmpty) {
         throw StateError('Payment status could not be confirmed.');

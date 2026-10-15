@@ -3,6 +3,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { Pool } = require('pg');
+const { WalletPayments, PaymentError, minorUnits, validSignature, validReference } = require('./payments');
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -54,6 +55,12 @@ const supportTickets = new Map();
 let pgPool = null;
 let usePostgres = false;
 const rateLimitBuckets = new Map();
+let pendingWalletEntries = [];
+let requestQueue = Promise.resolve();
+function walletPayments() {
+  return new WalletPayments({ pool: usePostgres ? pgPool : null, secret: process.env.PAYMENT_SECRET_KEY,
+    origin: process.env.MOVETRAQ_PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL });
+}
 
 async function connectPostgres() {
   if (!databaseUrl) {
@@ -116,6 +123,7 @@ async function connectPostgres() {
     );
   `);
   usePostgres = true;
+  await pgPool.query(fs.readFileSync(path.join(__dirname, '..', 'migrations', '0001_paystack_wallet.sql'), 'utf8'));
   console.log('MoveTraq API connected to PostgreSQL');
 }
 
@@ -144,6 +152,7 @@ async function loadStore() {
     pgPool.query('SELECT user_id, data FROM support_tickets'),
   ]);
 
+  for (const map of [users, credentials, orders, messages, walletTransactions, notifications, savedAddresses, securitySettings, supportTickets]) map.clear();
   for (const row of userRows.rows) users.set(row.uid, row.data);
   for (const row of credentialRows.rows) credentials.set(row.email, row.password_hash);
   for (const row of orderRows.rows) orders.set(row.id, row.data);
@@ -199,6 +208,10 @@ async function saveStore() {
   const client = await pgPool.connect();
   try {
     await client.query('BEGIN');
+    for (const entry of pendingWalletEntries) {
+      await client.query(`insert into legacy_wallet_ledger(id,user_id,kind,amount_minor,balance_after_minor)
+        values($1,$2,$3,$4,$5)`, [entry.id, entry.userId, entry.kind, entry.amountMinor, entry.balanceMinor]);
+    }
     await upsertJsonMap(client, 'users', 'uid', users);
     for (const [email, passwordHash] of credentials.entries()) {
       const user = [...users.values()].find((item) => item.email.toLowerCase() === email);
@@ -220,6 +233,7 @@ async function saveStore() {
     await upsertJsonMap(client, 'security_settings', 'user_id', securitySettings);
     await upsertJsonMap(client, 'support_tickets', 'user_id', supportTickets);
     await client.query('COMMIT');
+    pendingWalletEntries = [];
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -246,7 +260,7 @@ function json(res, status, body) {
     'content-type': 'application/json',
     'access-control-allow-origin': allowOrigin,
     'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS',
-    'access-control-allow-headers': 'content-type,authorization',
+    'access-control-allow-headers': 'content-type,authorization,idempotency-key',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'cache-control': 'no-store',
@@ -354,28 +368,29 @@ function requireAuth(req, res) {
   return user;
 }
 
-function readBody(req) {
+function readRawBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = []; let size = 0;
     req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 1_000_000) {
+      size += chunk.length;
+      if (size > 1_000_000) {
         req.destroy();
         reject(new Error('Request body is too large.'));
-      }
-    });
-    req.on('end', () => {
-      if (!body) {
-        resolve({});
         return;
       }
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        reject(new Error('Invalid JSON body.'));
-      }
+      chunks.push(chunk);
     });
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', reject);
+    req.on('aborted', () => reject(new PaymentError(400, 'Request was interrupted.')));
   });
+}
+async function readBody(req) {
+  const raw = await req.rawBody;
+  try { return raw?.length ? JSON.parse(raw.toString('utf8')) : {}; }
+  catch { throw new PaymentError(400, 'Invalid JSON body.'); }
 }
 
 function visibleOrders(user) {
@@ -425,7 +440,12 @@ function addWalletTransaction(userId, item, balanceDelta = 0) {
   const list = walletTransactions.get(userId) || [];
   list.push(item);
   walletTransactions.set(userId, list);
-  user.walletBalance = Number(user.walletBalance || 0) + Number(balanceDelta || 0);
+  const amountMinor = minorUnits(balanceDelta);
+  const balanceMinor = minorUnits(user.walletBalance || 0) + amountMinor;
+  if (!Number.isSafeInteger(balanceMinor) || balanceMinor < 0) throw new PaymentError(409, 'Insufficient wallet balance.');
+  user.walletBalance = balanceMinor / 100;
+  user.walletRevision = Number(user.walletRevision || 0) + 1;
+  pendingWalletEntries.push({ id: item.id, userId, kind: item.type, amountMinor, balanceMinor });
   users.set(userId, user);
   return list;
 }
@@ -772,7 +792,7 @@ function homeGreeting() {
   return { greeting: 'Good evening', period: 'evening', hour, timezone };
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   res.req = req;
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -807,6 +827,32 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && ['/payments/paystack/return', '/payments/paystack/cancel'].includes(path)) {
+      json(res, 200, { status: 'verification_required' }); return;
+    }
+    if (req.method === 'GET' && path === '/payments/config') {
+      let enabled = false;
+      try { walletPayments().ready(); enabled = true; } catch {}
+      json(res, 200, { provider: 'paystack', enabled, testMode: process.env.PAYMENT_SECRET_KEY?.startsWith('sk_test_') || false,
+        currency: 'NGN', minimumMinor: 10000, maximumMinor: 100000000 }); return;
+    }
+    if (req.method === 'POST' && path === '/payments/webhooks/paystack') {
+      if (!rateLimit(req, res, 'paystack:webhook', 120, 60 * 1000)) return;
+      const raw = await req.rawBody;
+      if (!validSignature(raw, req.headers['x-paystack-signature'], process.env.PAYMENT_SECRET_KEY)) {
+        json(res, 401, { error: 'Invalid payment signature.' }); return;
+      }
+      let event;
+      try { event = JSON.parse(raw.toString('utf8')); } catch { throw new PaymentError(400, 'Invalid webhook body.'); }
+      if (event.event === 'charge.success' && validReference(event.data?.reference)) {
+        try {
+          const verified = await walletPayments().verify(event.data.reference);
+          if (verified.status !== 'verified') throw new PaymentError(503, 'Payment is not settled yet.');
+        }
+        catch (error) { if (error.status !== 404) throw error; }
+      }
+      json(res, 200, { received: true }); return;
+    }
     const body = ['POST', 'PATCH'].includes(req.method) ? await readBody(req) : {};
 
     if (req.method === 'POST' && path === '/auth/signup') {
@@ -876,6 +922,20 @@ const server = http.createServer(async (req, res) => {
 
     const user = requireAuth(req, res);
     if (!user) return;
+
+    if (req.method === 'POST' && path === '/payments/topups') {
+      if (!rateLimit(req, res, 'paystack:initialize', 20, 15 * 60 * 1000)) return;
+      if (!body || Object.keys(body).some(key => key !== 'amountMinor')) throw new PaymentError(400, 'Only the top-up amount is accepted.');
+      json(res, 200, await walletPayments().initialize(user, body.amountMinor, req.headers['idempotency-key'])); return;
+    }
+    const verifyPayment = path.match(/^\/payments\/(mt-[a-f0-9]{64})\/verify$/);
+    if (req.method === 'POST' && verifyPayment) {
+      if (!rateLimit(req, res, 'paystack:verify', 30, 60 * 1000)) return;
+      const result = await walletPayments().verify(verifyPayment[1], user.uid);
+      if (result.status === 'verified') await loadStore();
+      json(res, 200, { reference: result.reference, status: result.status,
+        ...(result.status === 'verified' ? { user: users.get(user.uid) } : {}) }); return;
+    }
 
     if (req.method === 'GET' && path === '/auth/me') {
       json(res, 200, { user });
@@ -1342,7 +1402,7 @@ const server = http.createServer(async (req, res) => {
         json(res, 400, { error: 'A positive top-up amount is required.' });
         return;
       }
-      if (process.env.DISABLE_TEST_WALLET_TOPUPS === 'true') {
+      if (isProduction || process.env.DISABLE_TEST_WALLET_TOPUPS === 'true') {
         json(res, 403, { error: 'Wallet top-up requires a payment provider in production.' });
         return;
       }
@@ -1358,6 +1418,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/wallet/withdraw') {
+      if (isProduction) { json(res, 503, { error: 'Bank withdrawals are not connected yet. No funds were deducted.' }); return; }
       if (!rateLimit(req, res, 'wallet:withdraw', 10, 15 * 60 * 1000)) return;
       const amount = Number(body.amount || 0);
       if (!Number.isFinite(amount) || amount <= 0) {
@@ -1549,17 +1610,47 @@ const server = http.createServer(async (req, res) => {
 
     json(res, 404, { error: 'Route not found.' });
   } catch (error) {
-    json(res, 500, { error: error.message || 'Server error.' });
+    json(res, error.status || 500, { error: error.status ? error.message : 'The request could not be completed. Please retry.' });
   }
+}
+
+async function lockedStore(action) {
+  if (!usePostgres) return action();
+  const lock = await pgPool.connect();
+  try {
+    // Whole-store snapshots must be serialized across instances and refreshed
+    // so another request's save cannot overwrite a verified payment.
+    await lock.query("select pg_advisory_lock(hashtext('movetraq-legacy-store-v2'))");
+    pendingWalletEntries = [];
+    await loadStore();
+    return await action();
+  } finally {
+    try { await lock.query("select pg_advisory_unlock(hashtext('movetraq-legacy-store-v2'))"); }
+    finally { lock.release(); }
+  }
+}
+const server = http.createServer((req, res) => {
+  if (['POST', 'PATCH'].includes(req.method)) {
+    req.rawBody = readRawBody(req);
+    req.rawBody.catch(() => {});
+  }
+  const simple = req.method === 'OPTIONS' || (req.method === 'GET' && ['/health', '/health/db', '/home/context',
+    '/payments/config',
+    '/payments/paystack/return', '/payments/paystack/cancel'].includes(req.url?.split('?')[0]));
+  if (simple) { handleRequest(req, res); return; }
+  const action = () => lockedStore(() => handleRequest(req, res));
+  const task = requestQueue.then(action, action);
+  requestQueue = task.catch(() => {});
+  task.catch(() => { if (!res.writableEnded) json(res, 503, { error: 'Wallet data is temporarily unavailable. Please retry.' }); });
 });
 
 async function start() {
   if (isProduction && jwtSecret === 'movetraq-local-secret') {
     throw new Error('JWT_SECRET must be set in production.');
   }
+  if (isProduction && !databaseUrl) throw new Error('Persistent PostgreSQL is required in production.');
   await connectPostgres();
-  await loadStore();
-  await saveStore();
+  await lockedStore(() => saveStore());
 
   server.listen(port, () => {
     console.log(`MoveTraq API listening on http://localhost:${port}`);

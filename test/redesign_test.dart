@@ -490,9 +490,7 @@ void main() {
     await tester.ensureVisible(find.text('Check payment status'));
     await tester.tap(find.text('Check payment status'));
     await tester.pumpAndSettle();
-    expect(
-        find.text(
-            'Payment verification is not connected to the mobile API yet.'),
+    expect(find.textContaining('Sign in before checking payment.'),
         findsOneWidget);
     expect(find.text('Payment confirmed'), findsNothing);
   });
