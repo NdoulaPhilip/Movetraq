@@ -1,5 +1,9 @@
 # Go Online
 
+The current API and admin are now hosted. See [verified hosted status](HOSTED_STATUS.md)
+for URLs, checks and remaining release boundaries. The checklist below remains
+the setup/reference procedure.
+
 GitHub source: `https://github.com/NdoulaPhilip/Movetraq`, branch `main`.
 Use `render.production.yaml` for the current Supabase backend and React admin.
 The existing root `render.yaml` still deploys the legacy `server/` application.

@@ -2,6 +2,12 @@
 
 ## Online Deployment
 
+Live admin: https://movetraq-production-admin.onrender.com
+
+Live Supabase API: https://movetraq-production-api.onrender.com/health
+
+See [verified hosted status](docs/HOSTED_STATUS.md) for checks and limitations.
+
 Use `render.production.yaml` for the current Supabase API and React admin.
 See [go online checklist](docs/GO_ONLINE.md) for cloud access, secrets,
 database migration checks and verification. The root `render.yaml` remains the
