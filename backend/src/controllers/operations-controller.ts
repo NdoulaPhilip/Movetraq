@@ -6,6 +6,7 @@ import { asyncHandler } from '../utils/async-handler.js';
 import { created, ok } from '../utils/responses.js';
 import { idSchema } from '../validators/account.js';
 import { pricingRuleSchema, serviceTypes } from '../validators/delivery.js';
+import { assertApprovedDeliverer } from '../services/deliverer-access.js';
 
 export const pricing = asyncHandler(async (_req, res) => {
   const { data, error } = await supabaseAdmin.from('pricing_rules').select('*').eq('enabled', true).order('service_type');
@@ -21,8 +22,8 @@ export const candidates = asyncHandler(async (req, res) => {
   });
   ok(res, { candidates });
 });
-export const summary = asyncHandler(async (req, res) => { ok(res, await deliveryRpc('deliverer_summary', { p_user_id: req.user!.id })); });
-export const customers = asyncHandler(async (req, res) => { ok(res, { customers: await deliveryRpc('deliverer_past_customers', { p_user_id: req.user!.id }) }); });
+export const summary = asyncHandler(async (req, res) => { await assertApprovedDeliverer(req.user!);ok(res, await deliveryRpc('deliverer_summary', { p_user_id: req.user!.id })); });
+export const customers = asyncHandler(async (req, res) => { await assertApprovedDeliverer(req.user!);ok(res, { customers: await deliveryRpc('deliverer_past_customers', { p_user_id: req.user!.id }) }); });
 export const receipt = asyncHandler(async (req, res) => {
   const order = await participantOrder(req.user!.id, idSchema.parse(req.params.id));
   ok(res, { orderId: order.id, reference: order.public_ref, serviceType: order.service_type, totalMinor: order.total_amount_minor,

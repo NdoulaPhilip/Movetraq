@@ -12,6 +12,23 @@ import 'node_api_client.dart';
 /// available only for isolated development with
 /// `--dart-define=MOVETRAQ_ALLOW_LOCAL_FALLBACK=true`.
 class LocalDataService {
+  Future<Map<String, dynamic>> delivererAccess() async {
+    final api = _api;
+    final owner = currentUser?.uid;
+    if (api == null || owner == null || !api.isAuthenticated) {
+      throw StateError('Sign in to check delivery approval.');
+    }
+    final result = await api.delivererAccess();
+    if (currentUser?.uid != owner) throw StateError('Your account changed.');
+    final user =
+        AppUser.fromJson(Map<String, dynamic>.from(result['user'] as Map));
+    if (user.uid != owner) {
+      throw StateError('Delivery approval account mismatch.');
+    }
+    _storeUser(user, makeCurrent: true);
+    return result;
+  }
+
   Future<Map<String, dynamic>> initializeWalletTopup(
       int amountMinor, String key) async {
     final api = _api;

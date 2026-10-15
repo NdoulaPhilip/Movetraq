@@ -5,6 +5,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const { WalletPayments, PaymentError, minorUnits, validSignature, validReference } = require('./payments');
 const monitoring = require('./monitoring');
+const { DelivererAccess } = require('./deliverer-access');
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -26,6 +27,7 @@ function loadEnvFile() {
 }
 
 loadEnvFile();
+const delivererAccess = new DelivererAccess({origin:process.env.DELIVERER_AUTHORITY_URL||'https://movetraq-production-api.onrender.com',secret:process.env.MONITORING_SERVICE_TOKEN});
 
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || 'movetraq-local-secret';
@@ -398,12 +400,14 @@ async function readBody(req) {
   catch { throw new PaymentError(400, 'Invalid JSON body.'); }
 }
 
-function visibleOrders(user) {
+function visibleOrders(user, approved=false) {
   return [...orders.values()]
     .filter((order) => {
-      if (order.senderId === user.uid || order.delivererId === user.uid) {
+      if (order.senderId === user.uid) {
         return true;
       }
+      if (!approved) return false;
+      if (order.delivererId === user.uid) return true;
       if (order.targetDelivererId) {
         return order.targetDelivererId === user.uid;
       }
@@ -897,6 +901,8 @@ async function handleRequest(req, res) {
         walletBalance: 0,
         delivererOnline: false,
         verified: false,
+        canDeliver: false,
+        delivererVerificationStatus: 'not_started',
         vehicleType: 'bike',
         distanceKm: 0,
         etaMinutes: 0,
@@ -922,6 +928,7 @@ async function handleRequest(req, res) {
         json(res, 401, { error: 'Invalid email/phone or password.' });
         return;
       }
+      await delivererAccess.profile(user);
       json(res, 200, { token: signToken(user.uid), user });
       return;
     }
@@ -939,6 +946,23 @@ async function handleRequest(req, res) {
 
     const user = requireAuth(req, res);
     if (!user) return;
+    if(req.method==='GET'&&path==='/deliverer-access'){
+      const state=await delivererAccess.command(user,'status');await delivererAccess.profile(user,state);
+      json(res,200,{...state,user});return;
+    }
+    const applicationRoute=path.match(/^\/api\/v1\/deliverers\/me\/applications(?:\/([0-9a-f-]{36})(?:\/(documents|submit))?)?$/i);
+    const documentConfirm=path.match(/^\/api\/v1\/verification-documents\/([0-9a-f-]{36})\/confirm$/i);
+    if(applicationRoute||documentConfirm){
+      let command,input=body;
+      if(documentConfirm&&req.method==='POST'){command='confirm';input={documentId:documentConfirm[1]};}
+      else if(applicationRoute&&req.method==='POST'){
+        command=applicationRoute[2]==='documents'?'reserve':applicationRoute[2]==='submit'?'submit':'start';
+        input={...body,...(applicationRoute[1]?{applicationId:applicationRoute[1]}:{})};
+      }else if(applicationRoute&&req.method==='GET')command='status';
+      if(command){const result=await delivererAccess.command(user,command,input);
+        if(applicationRoute?.[1]&&req.method==='GET'&&result.id!==applicationRoute[1]){json(res,404,{error:'Application was not found.'});return;}
+        json(res,200,{success:true,data:result});return;}
+    }
 
     if (req.method === 'POST' && path === '/payments/topups') {
       if (!rateLimit(req, res, 'paystack:initialize', 20, 15 * 60 * 1000)) return;
@@ -955,11 +979,14 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === 'GET' && path === '/auth/me') {
+      await delivererAccess.profile(user);
       json(res, 200, { user });
       return;
     }
 
     if (req.method === 'PATCH' && path === '/users/me') {
+      if(body.vehicleType!==undefined)throw new PaymentError(403,'Transport changes require a reviewed deliverer application.');
+      if(body.activeRole==='deliverer'||body.delivererOnline===true)await delivererAccess.requireApproved(user);
       if (typeof body.name === 'string' && body.name.trim()) {
         user.name = text(body.name, user.name, 80);
       }
@@ -996,10 +1023,10 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === 'GET' && path === '/deliverers') {
+      const candidates=[];
+      for(const item of users.values())if(item.activeRole==='deliverer'&&item.delivererOnline){await delivererAccess.profile(item);if(item.canDeliver)candidates.push(item);}
       json(res, 200, {
-        deliverers: [...users.values()].filter(
-          (item) => item.activeRole === 'deliverer' && item.delivererOnline,
-        ),
+        deliverers: candidates,
       });
       return;
     }
@@ -1022,7 +1049,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === 'GET' && path === '/orders') {
-      json(res, 200, { orders: visibleOrders(user) });
+      await delivererAccess.profile(user);
+      json(res, 200, { orders: visibleOrders(user,user.canDeliver===true) });
       return;
     }
 
@@ -1049,6 +1077,8 @@ async function handleRequest(req, res) {
       const targetDelivererName =
         isP2P && body.targetDelivererName ? String(body.targetDelivererName) : null;
       const autoAccept = Boolean(body.autoAccept && body.delivererId);
+      if(autoAccept)throw new PaymentError(403,'Deliverers must accept jobs through their approved account.');
+      if(body.targetDelivererId){const target=users.get(String(body.targetDelivererId));if(!target)throw new PaymentError(404,'Deliverer not found.');await delivererAccess.requireApproved(target);}
       const delivererId = autoAccept ? String(body.delivererId) : null;
       const delivererName = autoAccept ? String(body.delivererName || '') : null;
       const pickupAddress = text(body.pickupAddress).trim() || 'Current location';
@@ -1129,6 +1159,11 @@ async function handleRequest(req, res) {
         json(res, 404, { error: 'Order not found.' });
         return;
       }
+      if(order.senderId!==user.uid){
+        const historicalRead=req.method==='GET'&&order.delivererId===user.uid&&['completed','cancelled'].includes(order.status);
+        if(!historicalRead)await delivererAccess.requireApproved(user);
+      }
+      if(req.method==='POST'&&['accept','stage','location'].includes(action))await delivererAccess.requireApproved(user);
       if (!requireOrderAccess(user, order)) {
         json(res, 403, { error: 'You do not have access to this order.' });
         return;

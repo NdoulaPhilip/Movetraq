@@ -23,8 +23,28 @@ class AuthProvider extends ChangeNotifier {
 
   StreamSubscription<AppUser?>? _authSub;
   StreamSubscription<AppUser?>? _profileSub;
+  Timer? _approvalTimer;
+  bool _checkingApproval = false;
+  bool _disposed = false;
+  Future<void> refreshApproval() async {
+    if (_checkingApproval || profile == null) return;
+    final owner = profile!.uid;
+    _checkingApproval = true;
+    try {
+      await _data.delivererAccess();
+    } catch (_) {
+      if (!_disposed && profile?.uid == owner) {
+        profile =
+            profile!.copyWith(canDeliver: false, activeRole: UserRole.sender);
+        notifyListeners();
+      }
+    } finally {
+      _checkingApproval = false;
+    }
+  }
 
   void _onAuthChanged(AppUser? user) {
+    _approvalTimer?.cancel();
     _profileSub?.cancel();
     if (user == null) {
       status = AuthStatus.signedOut;
@@ -33,6 +53,8 @@ class AuthProvider extends ChangeNotifier {
       return;
     }
     status = AuthStatus.signedIn;
+    _approvalTimer =
+        Timer.periodic(const Duration(seconds: 20), (_) => refreshApproval());
     _profileSub = _data.profileStream(user.uid).listen((p) {
       profile = p;
       notifyListeners();
@@ -104,6 +126,13 @@ class AuthProvider extends ChangeNotifier {
       final next = profile!.activeRole == UserRole.sender
           ? UserRole.deliverer
           : UserRole.sender;
+      if (next == UserRole.deliverer) {
+        await _data.delivererAccess();
+        if (_data.currentUser?.isApprovedDeliverer != true) {
+          throw StateError(
+              'Administrator approval is required for delivery work.');
+        }
+      }
       await _data.updateRole(profile!.uid, next);
     });
   }
@@ -133,8 +162,10 @@ class AuthProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _authSub?.cancel();
     _profileSub?.cancel();
+    _approvalTimer?.cancel();
     super.dispose();
   }
 }

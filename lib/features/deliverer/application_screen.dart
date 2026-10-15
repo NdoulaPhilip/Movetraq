@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,6 +6,8 @@ import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/primary_button.dart';
+import '../../providers/auth_provider.dart';
+import '../../models/app_user.dart';
 
 class DelivererApplicationScreen extends StatefulWidget {
   const DelivererApplicationScreen({super.key});
@@ -219,81 +222,109 @@ class VerificationScreen extends StatefulWidget {
 class _VerificationScreenState extends State<VerificationScreen> {
   late Future<Map<String, dynamic>> _future;
   bool _busy = false;
+  String _id = '';
+  Timer? _statusTimer;
   @override
   void initState() {
     super.initState();
     _load();
-  }
-
-  void _load() {
-    _future = widget.applicationId.isEmpty
-        ? Future.value({'status': 'not_started'})
-        : FeatureGateway(context.read<LocalDataService>()).request(
-            'Verification',
-            'GET',
-            '/deliverers/me/applications/${widget.applicationId}');
+    _statusTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted && !_busy) setState(_load);
+    });
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Delivery verification', children: [
-        FutureBuilder<Map<String, dynamic>>(
-            future: _future,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return LoadError(
-                    error: snapshot.error!, onRetry: () => setState(_load));
-              }
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final status =
-                  snapshot.data!['status']?.toString() ?? 'not_started';
-              return InfoBand(
-                  title: status.replaceAll('_', ' '),
-                  body: 'Private documents are reviewed before approval.',
-                  icon: Icons.verified_user_outlined);
-            }),
-        const RouteTile(
-            title: 'Identity information',
-            icon: Icons.person_outline,
-            route: '/deliverer-apply'),
-        RouteTile(
-            title: 'Verification documents',
-            icon: Icons.description_outlined,
-            route: '/verification-documents',
-            arguments: widget.applicationId),
-        const RouteTile(
-            title: 'Transport & delivery area',
-            icon: Icons.local_shipping_outlined,
-            route: '/deliverer-work-settings'),
-        const RouteTile(
-            title: 'Safety information',
-            icon: Icons.shield_outlined,
-            route: '/safety'),
-        const SizedBox(height: 24),
-        PrimaryButton(
-            label: widget.applicationId.isEmpty
-                ? 'Start application'
-                : 'Submit for review',
-            loading: _busy,
-            onPressed: () async {
-              if (widget.applicationId.isEmpty) {
-                Navigator.pushNamed(context, '/deliverer-apply');
-                return;
-              }
-              setState(() => _busy = true);
-              try {
-                await FeatureGateway(context.read<LocalDataService>()).request(
-                    'Verification',
-                    'POST',
-                    '/deliverers/me/applications/${widget.applicationId}/submit');
-                if (mounted) setState(_load);
-              } catch (error) {
-                if (context.mounted) showActionError(context, error);
-              } finally {
-                if (mounted) setState(() => _busy = false);
-              }
-            }),
-      ]);
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  void _load() {
+    _future = context.read<LocalDataService>().delivererAccess().then((state) {
+      _id = state['id']?.toString() ?? '';
+      return state;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return AppPage(title: 'Delivery verification', children: [
+            LoadError(error: snapshot.error!, onRetry: () => setState(_load))
+          ]);
+        }
+        if (!snapshot.hasData) {
+          return const AppPage(
+              title: 'Delivery verification',
+              children: [Center(child: CircularProgressIndicator())]);
+        }
+        final status = snapshot.data!['status']?.toString() ?? 'not_started';
+        final editable = status == 'not_started' && _id.isNotEmpty;
+        return AppPage(title: 'Delivery verification', children: [
+          InfoBand(
+              title: status.replaceAll('_', ' '),
+              body: snapshot.data!['review_notes']?.toString() ??
+                  (status == 'approved'
+                      ? 'Your delivery application has been approved.'
+                      : 'Deliverer access remains restricted until an administrator approves your application.'),
+              icon: Icons.verified_user_outlined),
+          if (status == 'not_started' || status == 'rejected')
+            const RouteTile(
+                title: 'Identity information',
+                icon: Icons.person_outline,
+                route: '/deliverer-apply'),
+          if (editable)
+            RouteTile(
+                title: 'Verification documents',
+                icon: Icons.description_outlined,
+                route: '/verification-documents',
+                arguments: _id),
+          const RouteTile(
+              title: 'Safety information',
+              icon: Icons.shield_outlined,
+              route: '/safety'),
+          const SizedBox(height: 24),
+          if (status == 'not_started' || status == 'rejected')
+            PrimaryButton(
+                label: _id.isEmpty || status == 'rejected'
+                    ? 'Start application'
+                    : 'Submit for review',
+                loading: _busy,
+                onPressed: () async {
+                  if (_id.isEmpty || status == 'rejected') {
+                    await Navigator.pushNamed(context, '/deliverer-apply');
+                    if (mounted) setState(_load);
+                    return;
+                  }
+                  setState(() => _busy = true);
+                  try {
+                    await FeatureGateway(context.read<LocalDataService>())
+                        .request('Verification', 'POST',
+                            '/deliverers/me/applications/$_id/submit');
+                    if (mounted) setState(_load);
+                  } catch (error) {
+                    if (context.mounted) showActionError(context, error);
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
+                  }
+                }),
+          if (status == 'approved')
+            PrimaryButton(
+                label: 'Open delivery workspace',
+                onPressed: () async {
+                  final auth = context.read<AuthProvider>();
+                  final success = auth.profile?.activeRole == UserRole.deliverer
+                      ? true
+                      : await auth.toggleRole();
+                  if (context.mounted && success) {
+                    Navigator.pushNamed(context, '/deliverer-home');
+                  }
+                }),
+          TextButton(
+              onPressed: () => setState(_load),
+              child: const Text('Refresh status')),
+        ]);
+      });
 }

@@ -28,6 +28,11 @@ class AppUser {
   // values seeded per-route in LocalDataService rather than permanent
   // account attributes, but live here to keep the UI simple. ---
   final bool verified;
+  final bool canDeliver;
+  final String delivererVerificationStatus;
+  final String? delivererApplicationId;
+  bool get isApprovedDeliverer =>
+      canDeliver && delivererVerificationStatus == 'approved';
   final String vehicleType; // 'bike' or 'car'
   final double distanceKm;
   final int etaMinutes;
@@ -46,6 +51,9 @@ class AppUser {
     this.delivererOnline = false,
     this.createdAt,
     this.verified = false,
+    this.canDeliver = false,
+    this.delivererVerificationStatus = 'not_started',
+    this.delivererApplicationId,
     this.vehicleType = 'bike',
     this.distanceKm = 0,
     this.etaMinutes = 0,
@@ -56,7 +64,8 @@ class AppUser {
     final parts = name.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
   }
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
@@ -75,6 +84,10 @@ class AppUser {
           ? null
           : DateTime.tryParse(json['createdAt'] as String),
       verified: json['verified'] as bool? ?? false,
+      canDeliver: json['canDeliver'] == true,
+      delivererVerificationStatus:
+          json['delivererVerificationStatus'] as String? ?? 'not_started',
+      delivererApplicationId: json['delivererApplicationId'] as String?,
       vehicleType: json['vehicleType'] as String? ?? 'bike',
       distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0,
       etaMinutes: (json['etaMinutes'] as num?)?.toInt() ?? 0,
@@ -96,6 +109,9 @@ class AppUser {
       'delivererOnline': delivererOnline,
       'createdAt': createdAt?.toIso8601String(),
       'verified': verified,
+      'canDeliver': canDeliver,
+      'delivererVerificationStatus': delivererVerificationStatus,
+      'delivererApplicationId': delivererApplicationId,
       'vehicleType': vehicleType,
       'distanceKm': distanceKm,
       'etaMinutes': etaMinutes,
@@ -114,6 +130,9 @@ class AppUser {
     double? walletBalance,
     bool? delivererOnline,
     bool? verified,
+    bool? canDeliver,
+    String? delivererVerificationStatus,
+    String? delivererApplicationId,
     String? vehicleType,
     double? distanceKm,
     int? etaMinutes,
@@ -132,6 +151,11 @@ class AppUser {
       delivererOnline: delivererOnline ?? this.delivererOnline,
       createdAt: createdAt,
       verified: verified ?? this.verified,
+      canDeliver: canDeliver ?? this.canDeliver,
+      delivererVerificationStatus:
+          delivererVerificationStatus ?? this.delivererVerificationStatus,
+      delivererApplicationId:
+          delivererApplicationId ?? this.delivererApplicationId,
       vehicleType: vehicleType ?? this.vehicleType,
       distanceKm: distanceKm ?? this.distanceKm,
       etaMinutes: etaMinutes ?? this.etaMinutes,

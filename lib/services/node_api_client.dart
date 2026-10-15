@@ -81,6 +81,8 @@ class NodeApiClient {
   String? _token;
 
   bool get isAuthenticated => _token != null;
+  Future<Map<String, dynamic>> delivererAccess() =>
+      _send('GET', '/deliverer-access');
 
   Future<Map<String, dynamic>> initializeWalletTopup(
           int amountMinor, String key) =>

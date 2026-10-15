@@ -228,6 +228,8 @@ void main() {
         phone: '+2348000000000',
         activeRole: deliverer ? UserRole.deliverer : UserRole.sender,
         verified: deliverer,
+        canDeliver: deliverer,
+        delivererVerificationStatus: deliverer ? 'approved' : 'not_started',
       );
     addTearDown(auth.dispose);
     final flow = SendFlowProvider(data);

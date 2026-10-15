@@ -87,9 +87,37 @@ class AppRouter {
 
     return MaterialPageRoute(
       settings: settings,
-      builder: (_) => screen,
+      builder: (_) => _delivererRoutes.contains(settings.name)
+          ? DelivererGate(child: screen)
+          : screen,
     );
   }
+
+  static const _delivererRoutes = {
+    '/delivery-pickup',
+    '/delivery-dropoff',
+    '/handover',
+    '/evidence-upload',
+    '/deliverer-job',
+    '/d-job',
+    '/deliverer-active',
+    '/d-active',
+    '/deliverer-profile',
+    '/delivery-opportunities',
+    '/delivery-work',
+    '/analytics',
+    '/performance',
+    '/past-customers',
+    '/customer-deliveries',
+    '/deliverer-earnings',
+    '/deliverer-orders',
+    '/deliverer-work-settings',
+    '/payouts',
+    '/payout-history',
+    '/my-p2p-ads',
+    '/create-p2p-ad',
+    '/edit-p2p-ad',
+  };
 
   static String _idArg(Object? args) {
     if (args is String && args.isNotEmpty) {

@@ -70,11 +70,16 @@ class _PrivateUploadScreenState extends State<PrivateUploadScreen> {
     UploadService? service;
     try {
       final gateway = FeatureGateway(context.read<LocalDataService>());
-      if (!FeatureGateway.enabled) {
+      if (!FeatureGateway.enabled && !widget.verification) {
         throw const FeatureUnavailable('Private uploads');
       }
+      final approval = widget.verification
+          ? await context.read<LocalDataService>().delivererAccess()
+          : null;
       service = UploadService(
-          storageOrigin: Environment.values.storageOrigin,
+          storageOrigin: widget.verification
+              ? Uri.parse(approval!['storageOrigin'] as String)
+              : Environment.values.storageOrigin,
           request: (method, path, body) =>
               gateway.request('Private uploads', method, path, body: body));
       final id = await service.uploadBytes(_bytes!,

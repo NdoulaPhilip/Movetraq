@@ -15,7 +15,7 @@ export function Verification({ user }: { user: StaffUser }) {
   const [documentError, setDocumentError] = useState('');
   const [opening, setOpening] = useState<string | null>(null);
   const query = useQuery({ queryKey: ['verification', user.uid, offset], queryFn: () =>
-    request<{ applications: Application[] }>(`/admin/verification-applications?limit=30&offset=${offset}`) });
+    request<{ applications: Application[] }>(`/admin/verification-applications?limit=30&offset=${offset}`),refetchInterval:10000 });
   const applications = query.data?.applications ?? [];
   const visible = applications.filter((item) => (filter !== 'pending' || ['submitted', 'under_review'].includes(item.status)) &&
     `${item.identity_info.fullName ?? ''} ${item.id}`.toLowerCase().includes(search.toLowerCase()));
@@ -23,7 +23,7 @@ export function Verification({ user }: { user: StaffUser }) {
   const review = useMutation({ mutationFn: () => request(`/admin/verification-applications/${selected!.id}/review`, 'POST', { status: action, notes }),
     onSuccess: async () => { setAction(''); setNotes(''); await queryClient.invalidateQueries({ queryKey: ['verification', user.uid] }); } });
   const actions = selected?.status === 'submitted' ? ['under_review', 'rejected'] : selected?.status === 'under_review' ?
-    ['approved', 'rejected'] : selected?.status === 'approved' ? ['suspended'] : [];
+    ['approved', 'rejected'] : selected?.status === 'approved' ? ['suspended'] : selected?.status==='suspended'&&selected.legacy_user_id?['under_review']:[];
   async function openDocument(id: string) {
     setDocumentError(''); setOpening(id);
     const tab = window.open('about:blank', '_blank');
@@ -45,7 +45,7 @@ export function Verification({ user }: { user: StaffUser }) {
     {query.isPending ? <p className="state-message" role="status">Loading applications...</p> : query.isError ? <p className="error" role="alert">{query.error.message}</p> :
       <div className="review-layout"><section className="application-list" aria-label="Applications"><div className="table-scroll"><table><thead><tr><th>Applicant</th><th>Transport</th><th>Status</th><th>Submitted</th></tr></thead>
         <tbody>{visible.map((item) => <tr key={item.id} className={selectedId === item.id ? 'active-row' : ''}>
-          <td><button className="row-link" onClick={() => { setSelectedId(item.id); setAction(''); setNotes(''); review.reset(); setDocumentError(''); }}>{item.identity_info.fullName ?? 'Applicant'}</button><small>{item.id.slice(0, 8)}</small></td>
+          <td><button className="row-link" onClick={() => { setSelectedId(item.id); setAction(''); setNotes(''); review.reset(); setDocumentError(''); }}>{item.identity_info.fullName ?? 'Applicant'}</button><small>{item.legacy_user_id?'Mobile account - ':''}{item.id.slice(0, 8)}</small></td>
           <td>{words(item.transport_info.transportType ?? 'Unspecified')}</td><td><span className={`status status-${item.status}`}>{words(item.status)}</span></td>
           <td>{new Date(item.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div>
         {visible.length === 0 && <p className="state-message">No matching applications.</p>}

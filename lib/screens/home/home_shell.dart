@@ -49,7 +49,8 @@ class _HomeShellState extends State<HomeShell> {
     final auth = context.watch<AuthProvider>();
     // If the profile's active role flips to deliverer (e.g. via the profile
     // switch), show the deliverer shell instead.
-    if (auth.profile?.activeRole == UserRole.deliverer) {
+    if (auth.profile?.activeRole == UserRole.deliverer &&
+        auth.profile?.isApprovedDeliverer == true) {
       return const DelivererGate(child: DelivererShell());
     }
 

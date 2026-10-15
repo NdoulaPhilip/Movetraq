@@ -18,7 +18,8 @@ class ProfileScreen extends StatelessWidget {
         RouteTile(title: 'Sign in', icon: Icons.login, route: '/signin')
       ]);
     }
-    final deliverer = profile.activeRole == UserRole.deliverer;
+    final deliverer =
+        profile.isApprovedDeliverer && profile.activeRole == UserRole.deliverer;
     return AppPage(title: 'Profile', embedded: true, actions: [
       IconButton(
           tooltip: 'Settings',
@@ -69,8 +70,8 @@ class ProfileScreen extends StatelessWidget {
           onChanged: auth.isBusy
               ? null
               : (_) async {
-                  if (!deliverer && !profile.verified) {
-                    Navigator.pushNamed(context, '/delivery-opportunities');
+                  if (!deliverer && !profile.isApprovedDeliverer) {
+                    Navigator.pushNamed(context, '/verification');
                     return;
                   }
                   await WorkspaceSwitch.open(context,

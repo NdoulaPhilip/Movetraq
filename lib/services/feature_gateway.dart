@@ -17,7 +17,14 @@ class FeatureGateway {
   Future<Map<String, dynamic>> request(
       String feature, String method, String path,
       {Map<String, dynamic>? body}) {
-    if (!enabled) return Future.error(FeatureUnavailable(feature));
+    final verification =
+        RegExp(r'^/deliverers/me/applications(?:/[0-9a-fA-F-]{36}(?:/(?:documents|submit))?)?$')
+                .hasMatch(path) ||
+            RegExp(r'^/verification-documents/[0-9a-fA-F-]{36}/confirm$')
+                .hasMatch(path);
+    if (!enabled && !verification) {
+      return Future.error(FeatureUnavailable(feature));
+    }
     return data.extendedRequest(method, path, body: body);
   }
 }

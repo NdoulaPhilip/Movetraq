@@ -5,6 +5,7 @@ import { quoteDelivery } from '../services/delivery-service.js';
 import * as repository from '../repositories/delivery-repository.js';
 import * as schemas from '../validators/delivery.js';
 import { idSchema, paginationSchema } from '../validators/account.js';
+import { assertApprovedDeliverer } from '../services/deliverer-access.js';
 
 export const quote = asyncHandler(async (req, res) => { created(res, { quote: await quoteDelivery(req.user!.id, schemas.quoteSchema.parse(req.body)) }); });
 export const createOrder = asyncHandler(async (req, res) => {
@@ -19,17 +20,23 @@ export const orders = asyncHandler(async (req, res) => {
 export const detail = asyncHandler(async (req, res) => { ok(res, { order: await repository.participantOrder(req.user!.id, idSchema.parse(req.params.id)) }); });
 export const command = asyncHandler(async (req, res) => {
   const input = schemas.commandSchema.parse(req.body);
+  if(input.command==='reject'){
+    const order=await repository.participantOrder(req.user!.id,idSchema.parse(req.params.id));
+    if(order.sender_id!==req.user!.id)await assertApprovedDeliverer(req.user!);
+  }
+  if(['offer','accept','heading_to_pickup','arrived_pickup','picked_up','heading_to_dropoff','arrived_dropoff','handover','returning','returned'].includes(input.command))await assertApprovedDeliverer(req.user!);
   ok(res, { order: await repository.deliveryRpc('execute_delivery_command', {
     p_actor_id: req.user!.id, p_order_id: idSchema.parse(req.params.id), p_command: input.command, p_input: input,
   }) });
 });
 export const handoverCode = asyncHandler(async (req, res) => { ok(res, await repository.deliveryRpc('sender_handover_code', { p_actor_id: req.user!.id, p_order_id: idSchema.parse(req.params.id) })); });
 export const jobs = asyncHandler(async (req, res) => {
+  await assertApprovedDeliverer(req.user!);
   const { limit, offset } = paginationSchema.parse(req.query);
   ok(res, { jobs: await repository.deliveryRpc('eligible_delivery_jobs', { p_user_id: req.user!.id, p_limit: limit, p_offset: offset }) });
 });
-export const availability = asyncHandler(async (req, res) => { ok(res, await repository.deliveryRpc('set_deliverer_availability', { p_user_id: req.user!.id, p_input: schemas.availabilitySchema.parse(req.body) })); });
-export const location = asyncHandler(async (req, res) => { ok(res, await repository.deliveryRpc('record_delivery_location', {
+export const availability = asyncHandler(async (req, res) => { await assertApprovedDeliverer(req.user!);ok(res, await repository.deliveryRpc('set_deliverer_availability', { p_user_id: req.user!.id, p_input: schemas.availabilitySchema.parse(req.body) })); });
+export const location = asyncHandler(async (req, res) => { await assertApprovedDeliverer(req.user!);ok(res, await repository.deliveryRpc('record_delivery_location', {
   p_user_id: req.user!.id, p_order_id: idSchema.parse(req.params.id), p_input: schemas.locationSchema.parse(req.body),
 })); });
 export const tracking = asyncHandler(async (req, res) => {

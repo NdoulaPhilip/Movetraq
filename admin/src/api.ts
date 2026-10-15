@@ -2,6 +2,7 @@ export interface StaffUser { uid: string; name: string; email: string; roles: st
 export interface AuthResult { user: StaffUser; session: { accessToken: string; refreshToken: string; expiresAt: number }; }
 export interface VerificationDocument { id: string; document_type: string; mime_type: string; size_bytes: number; upload_verified_at: string | null; }
 export interface Application { id: string; user_id: string; status: string; identity_info: { fullName?: string; dateOfBirth?: string };
+  legacy_user_id?:string|null;
   transport_info: { transportType?: string }; safety_declarations: Record<string, boolean>; created_at: string;
   review_notes: string | null; documents: VerificationDocument[]; }
 export interface PricingConfiguration { baseMinor: number; perKmMinor: number; perMinuteMinor: number; helperMinor: number;
