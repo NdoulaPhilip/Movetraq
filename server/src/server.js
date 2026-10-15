@@ -35,6 +35,8 @@ const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
 const nodeEnv = process.env.NODE_ENV || 'development';
 const isProduction = nodeEnv === 'production';
 const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7);
+const pgPoolMax=Number(process.env.PG_POOL_MAX||4);
+if(!Number.isInteger(pgPoolMax)||pgPoolMax<2||pgPoolMax>6)throw new Error('PG_POOL_MAX must be an integer between 2 and 6.');
 const googleMapsApiKey =
   process.env.GOOGLE_PLACES_API_KEY ||
   process.env.GOOGLE_GEOCODING_API_KEY ||
@@ -60,6 +62,7 @@ let usePostgres = false;
 const rateLimitBuckets = new Map();
 let pendingWalletEntries = [];
 let requestQueue = Promise.resolve();
+let stopping=false;
 function walletPayments() {
   return new WalletPayments({ pool: usePostgres ? pgPool : null, secret: process.env.PAYMENT_SECRET_KEY,
     origin: process.env.MOVETRAQ_PUBLIC_API_URL || process.env.RENDER_EXTERNAL_URL });
@@ -73,10 +76,15 @@ async function connectPostgres() {
 
   pgPool = new Pool({
     connectionString: databaseUrl,
+    // Leave room for both instances during a rolling deployment.
+    max:pgPoolMax,
+    idleTimeoutMillis:10000,
+    connectionTimeoutMillis:10000,
     ssl: databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1')
       ? false
       : { rejectUnauthorized: false },
   });
+  pgPool.on('error',()=>console.error(JSON.stringify({event:'postgres_idle_connection_unavailable'})));
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS users (
       uid TEXT PRIMARY KEY,
@@ -1721,7 +1729,7 @@ async function start() {
   if (usePostgres) {
     let running = false;
     setInterval(() => {
-      if (running) return;
+      if (running || stopping) return;
       try { walletPayments().ready(); } catch { return; }
       running = true;
       const task = requestQueue.then(() => lockedStore(() => monitoring.reconcilePending(pgPool, walletPayments())));
@@ -1739,4 +1747,11 @@ async function start() {
 start().catch((error) => {
   console.error(`MoveTraq API failed to start: ${error.message}`);
   process.exit(1);
+});
+for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{
+  stopping=true;
+  server.close(()=>{
+    void (pgPool?pgPool.end():Promise.resolve()).then(()=>process.exit(0),()=>process.exit(1));
+  });
+  setTimeout(()=>process.exit(1),25000).unref();
 });

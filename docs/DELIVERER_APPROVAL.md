@@ -54,3 +54,8 @@ do not describe the new approval workflow as live.
 
 No existing users are approved automatically, and no test applicant or fake
 documents should be inserted into production to demonstrate the workflow.
+
+The legacy PostgreSQL pool defaults to four connections (`PG_POOL_MAX`), with
+idle cleanup and graceful shutdown. A ten-connection pool per instance exceeded
+the hosted session pool's fifteen-client budget during rolling deployment.
+Keep the combined old/new instance connection budget within the database limit.
