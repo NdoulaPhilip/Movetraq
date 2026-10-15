@@ -11,8 +11,8 @@ beforeAll(async()=>{
   const socket=createServer();await new Promise<void>(resolve=>socket.listen(0,'127.0.0.1',resolve));
   const port=(socket.address() as {port:number}).port;await new Promise<void>(resolve=>socket.close(()=>resolve()));base=`http://127.0.0.1:${port}`;
   // Isolated in-memory test server; this fixture never contacts hosted services.
-  const source=`global.fetch=async()=>new Response(JSON.stringify({success:true,data:{status:'submitted',canDeliver:false}}));require('./server/src/server.js');`;
-  child=spawn(process.execPath,['-e',source],{cwd:fileURLToPath(new URL('../../',import.meta.url)),env:{...process.env,NODE_ENV:'test',PORT:String(port),DATABASE_URL:'',POSTGRES_URL:'',JWT_SECRET:'isolated-test-jwt-not-production',MONITORING_SERVICE_TOKEN:'isolated-private-service-test-token',DELIVERER_AUTHORITY_URL:'https://authority.example.test'},stdio:['ignore','pipe','pipe']});
+  const source=`let status='submitted';process.on('message',message=>{status=message.status;process.send({status});});global.fetch=async()=>new Response(JSON.stringify({success:true,data:{status,canDeliver:status==='approved'}}));require('./server/src/server.js');`;
+  child=spawn(process.execPath,['-e',source],{cwd:fileURLToPath(new URL('../../',import.meta.url)),env:{...process.env,NODE_ENV:'test',PORT:String(port),DATABASE_URL:'',POSTGRES_URL:'',JWT_SECRET:'isolated-test-jwt-not-production',MONITORING_SERVICE_TOKEN:'isolated-private-service-test-token',DELIVERER_AUTHORITY_URL:'https://authority.example.test'},stdio:['ignore','pipe','pipe','ipc']});
   await new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Isolated server startup timed out')),15000);child.once('exit',()=>{clearTimeout(timeout);reject(new Error('Isolated server stopped'));});child.stdout!.on('data',data=>{if(String(data).includes('API listening')){clearTimeout(timeout);resolve();}});});
   const register=async(email:string)=>request('/auth/signup','POST',{name:'Fixture sender',email,phone:'',password:'fixture-password-only'});
   sender=(await register('sender-one@example.test')).body.token;applicant=(await register('applicant@example.test')).body.token;
@@ -37,5 +37,15 @@ describe('legacy delivery API approval boundary',()=>{
   });
   it('prevents client-side preassignment from bypassing acceptance approval',async()=>{
     expect((await request('/orders','POST',{price:0,autoAccept:true,delivererId:'user_not_approved'},sender)).status).toBe(403);
+  });
+  it('updates the same account immediately after official approval and revokes on suspension',async()=>{
+    const authority=async(status:string)=>new Promise<void>(resolve=>{child.once('message',()=>resolve());child.send!({status});});
+    await authority('approved');
+    const switched=await request('/users/me','PATCH',{activeRole:'deliverer'},applicant);
+    expect(switched.status).toBe(200);expect(switched.body.user).toMatchObject({activeRole:'deliverer',canDeliver:true,verified:true,delivererVerificationStatus:'approved'});
+    await authority('suspended');
+    const revoked=await request('/deliverer-access','GET',undefined,applicant);
+    expect(revoked.body.user).toMatchObject({activeRole:'sender',canDeliver:false,delivererOnline:false});
+    expect((await request(`/orders/${orderId}/accept`,'POST',{},applicant)).status).toBe(403);
   });
 });

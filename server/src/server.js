@@ -947,7 +947,8 @@ async function handleRequest(req, res) {
     const user = requireAuth(req, res);
     if (!user) return;
     if(req.method==='GET'&&path==='/deliverer-access'){
-      const state=await delivererAccess.command(user,'status');await delivererAccess.profile(user,state);
+      const state=await delivererAccess.command(user,'status');const previous=JSON.stringify(user);await delivererAccess.profile(user,state);
+      if(JSON.stringify(user)!==previous)await saveStore();
       json(res,200,{...state,user});return;
     }
     const applicationRoute=path.match(/^\/api\/v1\/deliverers\/me\/applications(?:\/([0-9a-f-]{36})(?:\/(documents|submit))?)?$/i);
@@ -986,7 +987,7 @@ async function handleRequest(req, res) {
 
     if (req.method === 'PATCH' && path === '/users/me') {
       if(body.vehicleType!==undefined)throw new PaymentError(403,'Transport changes require a reviewed deliverer application.');
-      if(body.activeRole==='deliverer'||body.delivererOnline===true)await delivererAccess.requireApproved(user);
+      if(body.activeRole==='deliverer'||body.delivererOnline===true){const state=await delivererAccess.requireApproved(user);await delivererAccess.profile(user,state);}
       if (typeof body.name === 'string' && body.name.trim()) {
         user.name = text(body.name, user.name, 80);
       }
