@@ -6,6 +6,7 @@ import { idSchema, paginationSchema } from '../validators/account.js';
 import { idempotencyKey } from '../validators/delivery.js';
 import * as schemas from '../validators/support.js';
 import * as evidence from '../services/evidence-service.js';
+import { assertApprovedDeliverer } from '../services/deliverer-access.js';
 
 export const open = asyncHandler(async (req, res) => {
   const input = schemas.supportCaseSchema.parse(req.body);
@@ -29,8 +30,8 @@ export const approveReturn = asyncHandler(async (req, res) => { ok(res, await de
 export const settle = asyncHandler(async (req, res) => { const input = schemas.settlementSchema.parse(req.body);
   ok(res, await deliveryRpc('settle_delivery_dispute', { p_admin_id: req.user!.id, p_order_id: idSchema.parse(req.params.id),
     p_decision: input.decision, p_resolution: input.resolution, p_key: idempotencyKey.parse(req.header('idempotency-key')) })); });
-export const reserveEvidence = asyncHandler(async (req, res) => { created(res, await evidence.reservePhoto(req.user!.id, idSchema.parse(req.params.id), schemas.evidenceSchema.parse(req.body).mimeType)); });
-export const confirmEvidence = asyncHandler(async (req, res) => { ok(res, await evidence.confirmPhoto(req.user!.id, idSchema.parse(req.params.id))); });
+export const reserveEvidence = asyncHandler(async (req, res) => { await assertApprovedDeliverer(req.user!);created(res, await evidence.reservePhoto(req.user!.id, idSchema.parse(req.params.id), schemas.evidenceSchema.parse(req.body).mimeType)); });
+export const confirmEvidence = asyncHandler(async (req, res) => { await assertApprovedDeliverer(req.user!);ok(res, await evidence.confirmPhoto(req.user!.id, idSchema.parse(req.params.id))); });
 export const evidenceHistory = asyncHandler(async (req, res) => { ok(res, { evidence: await evidence.evidenceList(req.user!, idSchema.parse(req.params.id)) }); });
 export const downloadEvidence = asyncHandler(async (req, res) => { ok(res, await evidence.evidenceDownload(req.user!, idSchema.parse(req.params.id))); });
 export const rate = asyncHandler(async (req, res) => { const input = schemas.ratingSchema.parse(req.body);
