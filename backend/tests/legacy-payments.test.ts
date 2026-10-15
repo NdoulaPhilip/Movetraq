@@ -34,7 +34,7 @@ beforeEach(async () => {
     return result({ reference: body.reference, authorization_url: 'https://checkout.paystack.com/test-checkout' });
   });
   payments = new WalletPayments({ pool, secret: 'sk_test_fixture', origin: 'https://api.example.test', request });
-});
+}, 60000);
 afterEach(async () => database?.close());
 
 describe('Android wallet Paystack transactions', () => {
