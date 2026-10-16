@@ -1,6 +1,7 @@
 # Hosted Status
 
-Verified on 2026-10-15. These are hosting checks, not a completed production
+Maps release verified on 2026-10-16; initial hosting checks below are from
+2026-10-15. These are hosting checks, not a completed production
 acceptance audit or proof of live payment/delivery journeys.
 
 | Service | Public URL | Render ID |
@@ -14,7 +15,35 @@ mobile API settings and the hosted database were not replaced. No Supabase
 migrations were applied during this deployment. Read-only checks confirmed
 expected account/security/wallet/ad/pricing/admin-directory columns existed.
 
-## Verified
+## Maps release — 2026-10-16
+
+- Supabase API deployment `dep-db9072rl550s73fdolh0` is live on `142a497`.
+- Mobile API deployment `dep-db904oon74is73d1t5tg` is live on `dff1e81`.
+- Both health checks and the mobile PostgreSQL health check pass.
+- Existing migrations `0015` and `0016` were confirmed through read-only RPC
+  calls. No migrations, accounts, orders or payments were created by these checks.
+- Authenticated saved-address reads, Photon search/reverse lookup and OSRM road
+  geometry pass against the hosted API. The public-landmark route check returned
+  4,597 metres, 351 seconds and 136 road points; these are estimated provider metrics.
+- Missing service authentication and missing mobile authentication return 401.
+  The shared bridge tokens match and the mobile authority URL remains correct.
+- `MAPS_PROVIDER=osm`, `GEOCODER_PROVIDER=photon` and the provider endpoints are
+  configured on Render. Nominatim search/reverse lookup failed from the Render
+  service, so the release uses Photon. Public provider capacity limits still apply.
+- Database, JWT and payment credentials were preserved. Admin was not redeployed.
+
+Use `node tools/render-maps.mjs status` or `node tools/render-maps.mjs verify`
+for deployment status and read-only live checks. `inspect` checks the existing
+services/schema and reports configuration key differences without printing secrets.
+`configure` changes only maps/bridge variables; `deploy backend` and `deploy mobile`
+deploy the exact current commit after confirming it was published to `origin/main`.
+The helper only targets the two existing API services; it does not provision resources.
+
+Install the updated Flutter APK for the OpenStreetMap views. Real-device GPS,
+permission prompts and a complete sender/driver journey remain device acceptance
+checks; successful provider checks do not replace those tests.
+
+## Initial hosting verification
 
 - Both new Render deployments reached live on Git commit `6a73d0e`.
 - API `/health` identifies `movetraq-backend`.
