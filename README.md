@@ -102,20 +102,20 @@ https://movetraq-api.onrender.com
 Run explicitly against Render:
 
 ```bash
-flutter run --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
+flutter run --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
 ```
 
 Build APK:
 
 ```bash
-flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
+flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
 ```
 
-The live tracking screens use native Google Maps on Android. Set `GOOGLE_MAPS_API_KEY` with `--dart-define`, an environment variable, a Gradle property, or `android/local.properties`; the Android manifest receives that value at build time. If the in-app diagnostics show the key is configured but the map is blank, enable **Maps SDK for Android** for that key in Google Cloud and make sure the Android app restriction includes package `com.example.movetraq` plus the SHA-1 shown by the diagnostics panel.
+Maps now use OpenStreetMap through `flutter_map` and require no Google Maps key. GPS is requested after login on the dashboards. See [OSM maps setup and testing](docs/OSM_MAPS.md).
 
-The backend also geocodes typed pickup/drop-off addresses. For hosted deployments, set `GOOGLE_PLACES_API_KEY` or `GOOGLE_GEOCODING_API_KEY` on the Node server and enable **Places API** plus **Geocoding API** for that key. Use a server/API-restricted key for the backend; an Android package/SHA-1 restricted key usually will not work from the server.
+The legacy mobile API forwards address lookup, routing and tracking to the Supabase backend through the existing authenticated bridge. OSRM and Nominatim are the default routing and geocoding providers. See [OSM setup](docs/OSM_MAPS.md) for service configuration and public endpoint limits.
 
-Courier tracking uses the deliverer's device GPS while the active delivery screen is open. Prototype/simulated movement is labelled as simulated and is replaced automatically once real GPS updates reach the app/API.
+Courier tracking uses fresh device GPS samples while the active delivery screen is open. Tracking is restricted to delivery participants; stale samples expire from the live view. Road lines and travel metrics come from the route provider. Missing provider configuration produces an unavailable state.
 
 Local in-memory fallback is disabled for normal builds. Only enable it for isolated development:
 

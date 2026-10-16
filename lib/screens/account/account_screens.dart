@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/misc_models.dart';
+import '../../models/parcel_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
@@ -253,7 +254,19 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
                                       context
                                           .read<SendFlowProvider>()
                                           .setDetails(
-                                              pickupAddress: address.address);
+                                              pickupAddress: address.address,
+                                              pickupLocation:
+                                                  address.latitude != null &&
+                                                          address.longitude !=
+                                                              null
+                                                      ? LatLng(
+                                                          address.latitude!,
+                                                          address.longitude!)
+                                                      : null,
+                                              clearPickupLocation:
+                                                  address.latitude == null ||
+                                                      address.longitude ==
+                                                          null);
                                       Navigator.pop(context, address);
                                     } else {
                                       try {

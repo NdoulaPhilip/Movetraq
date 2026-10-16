@@ -11,9 +11,11 @@ import { adminUsersRouter } from './admin-users.js';
 import { adsRouter } from './ads.js';
 import { addressSearchRouter } from './address-search.js';
 import { mobileDeliverer } from '../controllers/mobile-deliverer-controller.js';
+import { mobileMaps } from '../controllers/mobile-maps-controller.js';
 
 export const apiRouter = Router();
 apiRouter.post('/internal/mobile-deliverer',mobileDeliverer);
+apiRouter.post('/internal/mobile-maps',mobileMaps);
 
 apiRouter.use(healthRouter);
 apiRouter.use('/api/v1', accountsRouter);

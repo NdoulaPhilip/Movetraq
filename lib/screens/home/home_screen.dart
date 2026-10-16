@@ -7,6 +7,7 @@ import '../../models/parcel_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
+import '../../services/node_api_client.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mini_map.dart';
 import '../../widgets/movetraq_brand.dart';
@@ -25,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Stream<List<ParcelOrder>>? _orders;
   bool _refreshFailed = false;
   bool _refreshing = false;
+  Future<AddressSuggestion>? _currentAddress;
 
   @override
   void didChangeDependencies() {
@@ -34,6 +36,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _userId = uid;
       _refreshFailed = false;
       _loadStreams();
+      _currentAddress = uid == null
+          ? null
+          : context.read<LocalDataService>().currentAddress();
     }
   }
 
@@ -48,6 +53,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_refreshing) return;
     _refreshing = true;
     final uid = _userId;
+    setState(() {
+      _currentAddress = uid == null
+          ? null
+          : context.read<LocalDataService>().currentAddress();
+    });
     try {
       await context.read<LocalDataService>().refreshRemoteState();
       if (!mounted || uid != _userId) return;
@@ -67,42 +77,54 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final profile = context.watch<AuthProvider>().profile;
     final pickup = context.watch<SendFlowProvider>().pickupAddress.trim();
-    return FutureBuilder<String>(
-        future: _greeting,
-        builder: (context, greeting) => StreamBuilder<List<SavedAddress>>(
-            key: ValueKey('home-addresses-$_userId'),
-            stream: _addresses,
-            builder: (context, addresses) => StreamBuilder<List<ParcelOrder>>(
-                key: ValueKey('home-orders-$_userId'),
-                stream: _orders,
-                builder: (context, orders) {
-                  String? current;
-                  for (final address in addresses.data ?? <SavedAddress>[]) {
-                    if (address.isDefault) {
-                      current = address.address;
-                      break;
-                    }
-                  }
-                  final active = (orders.data ?? <ParcelOrder>[])
-                      .where((order) =>
-                          order.senderId == profile?.uid &&
-                          order.status != OrderStatus.released &&
-                          order.status != OrderStatus.cancelled)
-                      .toList()
-                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-                  return HomeContent(
-                    profile: profile,
-                    greeting: greeting.data,
-                    currentLocation: pickup.isNotEmpty ? pickup : current,
-                    recentOrder: active.isEmpty ? null : active.first,
-                    connectionError: _refreshFailed ||
-                        greeting.hasError ||
-                        addresses.hasError ||
-                        orders.hasError,
-                    onLocationTap: () => chooseHomeLocation(context),
-                    onRefresh: _refresh,
-                  );
-                })));
+    return FutureBuilder<AddressSuggestion>(
+        future: _currentAddress,
+        builder: (context, location) => FutureBuilder<String>(
+            future: _greeting,
+            builder: (context, greeting) => StreamBuilder<List<SavedAddress>>(
+                key: ValueKey('home-addresses-$_userId'),
+                stream: _addresses,
+                builder: (context, addresses) => StreamBuilder<
+                        List<ParcelOrder>>(
+                    key: ValueKey('home-orders-$_userId'),
+                    stream: _orders,
+                    builder: (context, orders) {
+                      final active = (orders.data ?? <ParcelOrder>[])
+                          .where((order) =>
+                              order.senderId == profile?.uid &&
+                              order.status != OrderStatus.released &&
+                              order.status != OrderStatus.cancelled)
+                          .toList()
+                        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                      return HomeContent(
+                        profile: profile,
+                        greeting: greeting.data,
+                        currentLocation:
+                            pickup.isNotEmpty ? pickup : location.data?.address,
+                        deviceLocation: location.data?.latitude == null ||
+                                location.data?.longitude == null
+                            ? null
+                            : LatLng(location.data!.latitude!,
+                                location.data!.longitude!),
+                        locationLabel: pickup.isNotEmpty
+                            ? 'Selected pickup'
+                            : 'Current location',
+                        locationError: pickup.isEmpty
+                            ? location.hasError
+                                ? '${location.error}'
+                                : location.data?.syncWarning
+                            : null,
+                        locating: pickup.isEmpty &&
+                            location.connectionState == ConnectionState.waiting,
+                        recentOrder: active.isEmpty ? null : active.first,
+                        connectionError: _refreshFailed ||
+                            greeting.hasError ||
+                            addresses.hasError ||
+                            orders.hasError,
+                        onLocationTap: () => chooseHomeLocation(context),
+                        onRefresh: _refresh,
+                      );
+                    }))));
   }
 }
 
@@ -112,7 +134,11 @@ class HomeContent extends StatelessWidget {
       this.profile,
       this.recentOrder,
       this.currentLocation,
+      this.deviceLocation,
       this.greeting,
+      this.locationLabel = 'Current location',
+      this.locationError,
+      this.locating = false,
       this.connectionError = false,
       this.onLocationTap,
       this.onRefresh,
@@ -120,7 +146,11 @@ class HomeContent extends StatelessWidget {
   final AppUser? profile;
   final ParcelOrder? recentOrder;
   final String? currentLocation;
+  final LatLng? deviceLocation;
   final String? greeting;
+  final String locationLabel;
+  final String? locationError;
+  final bool locating;
   final bool connectionError;
   final VoidCallback? onLocationTap;
   final Future<void> Function()? onRefresh;
@@ -198,6 +228,11 @@ class HomeContent extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 22, 20, 108),
         children: [
+          if (locationError != null)
+            Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(locationError!,
+                    style: const TextStyle(color: AppColors.danger))),
           Row(children: [
             Expanded(
                 child: InkWell(
@@ -206,8 +241,8 @@ class HomeContent extends StatelessWidget {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Current location',
-                              style: TextStyle(
+                          Text(locationLabel,
+                              style: const TextStyle(
                                   fontSize: 11, color: AppColors.muted)),
                           const SizedBox(height: 4),
                           Row(children: [
@@ -240,6 +275,12 @@ class HomeContent extends StatelessWidget {
           const Text('What are we moving today?',
               style: TextStyle(fontSize: 16, color: AppColors.muted)),
           const SizedBox(height: 18),
+          if (deviceLocation != null) ...[
+            ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: MiniMap(courierLocation: deviceLocation, height: 180)),
+            const SizedBox(height: 18),
+          ],
           InkWell(
               onTap: () => _open(context, '/location-search'),
               child: Container(

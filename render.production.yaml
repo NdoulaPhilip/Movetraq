@@ -39,6 +39,12 @@ services:
         value: https://movetraq-api.onrender.com
       - key: MONITORING_SERVICE_TOKEN
         sync: false
+      - key: MAPS_PROVIDER
+        value: osm
+      - key: OSRM_URL
+        value: https://router.project-osrm.org
+      - key: NOMINATIM_URL
+        value: https://nominatim.openstreetmap.org
   - type: web
     name: movetraq-production-admin
     runtime: static

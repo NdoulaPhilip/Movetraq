@@ -6,6 +6,7 @@ const { Pool } = require('pg');
 const { WalletPayments, PaymentError, minorUnits, validSignature, validReference } = require('./payments');
 const monitoring = require('./monitoring');
 const { DelivererAccess } = require('./deliverer-access');
+const { MobileMaps } = require('./mobile-maps');
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '..', '.env');
@@ -29,6 +30,8 @@ function loadEnvFile() {
 loadEnvFile();
 const delivererAccess = new DelivererAccess({origin:process.env.DELIVERER_AUTHORITY_URL||'https://movetraq-production-api.onrender.com',secret:process.env.MONITORING_SERVICE_TOKEN});
 
+const mobileMaps = new MobileMaps({origin:process.env.DELIVERER_AUTHORITY_URL||'https://movetraq-production-api.onrender.com',secret:process.env.MONITORING_SERVICE_TOKEN});
+
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || 'movetraq-local-secret';
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
@@ -37,12 +40,6 @@ const isProduction = nodeEnv === 'production';
 const accessTokenTtlSeconds = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7);
 const pgPoolMax=Number(process.env.PG_POOL_MAX||4);
 if(!Number.isInteger(pgPoolMax)||pgPoolMax<2||pgPoolMax>6)throw new Error('PG_POOL_MAX must be an integer between 2 and 6.');
-const googleMapsApiKey =
-  process.env.GOOGLE_PLACES_API_KEY ||
-  process.env.GOOGLE_GEOCODING_API_KEY ||
-  process.env.GOOGLE_MAPS_API_KEY ||
-  process.env.GOOGLE_API_KEY ||
-  '';
 const allowedOrigins = String(process.env.CORS_ORIGINS || '*')
   .split(',')
   .map((origin) => origin.trim())
@@ -526,254 +523,6 @@ function readOptionalLocation(value) {
   return { latitude, longitude };
 }
 
-function distanceKm(from, to) {
-  if (!from || !to) return null;
-  const lat1 = Number(from.latitude);
-  const lon1 = Number(from.longitude);
-  const lat2 = Number(to.latitude);
-  const lon2 = Number(to.longitude);
-  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
-
-  const radiusKm = 6371;
-  const toRadians = (degrees) => degrees * Math.PI / 180;
-  const dLat = toRadians(lat2 - lat1);
-  const dLon = toRadians(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) *
-      Math.cos(toRadians(lat2)) *
-      Math.sin(dLon / 2) ** 2;
-  return 2 * radiusKm * Math.asin(Math.sqrt(a));
-}
-
-function applyLiveEta(order) {
-  if (!order || !order.courierLocation) return order;
-  const destination =
-    order.status === 'accepted'
-      ? order.pickupLocation || order.dropoffLocation
-      : order.dropoffLocation;
-  const km = distanceKm(order.courierLocation, destination);
-  if (km == null) return order;
-
-  const averageUrbanKmh = Number(process.env.DELIVERY_AVERAGE_KMH || 22);
-  const safeKmh = Number.isFinite(averageUrbanKmh) && averageUrbanKmh > 0
-    ? averageUrbanKmh
-    : 22;
-  const etaMinutes = Math.max(1, Math.ceil((km / safeKmh) * 60));
-  order.etaMinutes = etaMinutes;
-  order.etaUpdatedAt = now();
-  order.etaDistanceKm = Number(km.toFixed(2));
-  return order;
-}
-
-const fallbackPlaces = [
-  ['Ikeja City Mall', 'Obafemi Awolowo Way, Ikeja, Lagos', 6.6143, 3.3571],
-  ['Computer Village', 'Otigba Street, Ikeja, Lagos', 6.5965, 3.3421],
-  ['Murtala Muhammed Airport', 'Airport Road, Ikeja, Lagos', 6.5774, 3.3212],
-  ['University of Lagos', 'Akoka, Yaba, Lagos', 6.5158, 3.3899],
-  ['Yaba Bus Park', 'Yaba, Lagos', 6.5095, 3.3711],
-  ['Lekki Phase 1', 'Admiralty Way, Lekki, Lagos', 6.4474, 3.4723],
-  ['The Palms Shopping Mall', 'BIS Way, Lekki, Lagos', 6.4351, 3.4562],
-  ['Victoria Island', 'Ahmadu Bello Way, Lagos', 6.4281, 3.4219],
-  ['Eko Hotel and Suites', 'Adetokunbo Ademola Street, Victoria Island, Lagos', 6.4265, 3.4303],
-  ['Ajah Market', 'Lekki-Epe Expressway, Ajah, Lagos', 6.4698, 3.5852],
-  ['Maryland Mall', 'Ikorodu Road, Maryland, Lagos', 6.5721, 3.3673],
-  ['Surulere Stadium', 'National Stadium, Surulere, Lagos', 6.4973, 3.3644],
-];
-
-function localPlaceSuggestions(query, limit = 6) {
-  const needle = String(query || '').trim().toLowerCase();
-  if (needle.length < 2) return [];
-  return fallbackPlaces
-    .filter(([name, address]) => `${name} ${address}`.toLowerCase().includes(needle))
-    .slice(0, limit)
-    .map(([name, address, latitude, longitude]) => ({
-      id: `local-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-      name,
-      address,
-      latitude,
-      longitude,
-      source: 'local',
-    }));
-}
-
-function normalizeGoogleAddress(item) {
-  const location = item.geometry?.location || {};
-  return {
-    id: item.place_id ? `google-${item.place_id}` : `google-${crypto.randomUUID()}`,
-    placeId: item.place_id || '',
-    name:
-      item.name ||
-      item.structured_formatting?.main_text ||
-      item.formatted_address ||
-      item.description ||
-      '',
-    address:
-      item.formatted_address ||
-      item.description ||
-      item.vicinity ||
-      item.name ||
-      '',
-    latitude: Number.isFinite(Number(location.lat)) ? Number(location.lat) : null,
-    longitude: Number.isFinite(Number(location.lng)) ? Number(location.lng) : null,
-    source: 'google',
-  };
-}
-
-async function googlePlaceDetails(placeId) {
-  if (!googleMapsApiKey || !placeId) return null;
-
-  const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
-  url.searchParams.set('place_id', placeId);
-  url.searchParams.set('fields', 'place_id,name,formatted_address,geometry');
-  url.searchParams.set('key', googleMapsApiKey);
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
-  if (!response.ok) return null;
-  const data = await response.json();
-  if (data.status !== 'OK' || !data.result) return null;
-  return normalizeGoogleAddress(data.result);
-}
-
-async function googlePlaceSuggestions(query) {
-  if (!googleMapsApiKey) return [];
-
-  const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
-  url.searchParams.set('input', query);
-  url.searchParams.set('components', 'country:ng');
-  url.searchParams.set('key', googleMapsApiKey);
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
-  if (!response.ok) return [];
-  const data = await response.json();
-  if (!['OK', 'ZERO_RESULTS'].includes(data.status)) return [];
-
-  const predictions = Array.isArray(data.predictions) ? data.predictions : [];
-  const detailed = await Promise.all(
-    predictions.slice(0, 6).map(async (prediction) => {
-      const details = await googlePlaceDetails(prediction.place_id);
-      return details || normalizeGoogleAddress(prediction);
-    }),
-  );
-  return detailed.filter((item) => item.address);
-}
-
-async function geocodeAddress(query) {
-  const trimmed = String(query || '').trim();
-  if (trimmed.length < 2) return null;
-
-  if (googleMapsApiKey) {
-    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-    url.searchParams.set('address', trimmed);
-    url.searchParams.set('components', 'country:NG');
-    url.searchParams.set('key', googleMapsApiKey);
-
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (response.ok) {
-        const data = await response.json();
-        const result = Array.isArray(data.results) ? data.results[0] : null;
-        if (data.status === 'OK' && result) {
-          return normalizeGoogleAddress(result);
-        }
-      }
-    } catch {
-      // Fall through to non-Google/local geocoders.
-    }
-  }
-
-  const local = localPlaceSuggestions(trimmed, 1)[0];
-  if (local) return local;
-
-  try {
-    const url = new URL('https://nominatim.openstreetmap.org/search');
-    url.searchParams.set('format', 'jsonv2');
-    url.searchParams.set('limit', '1');
-    url.searchParams.set('countrycodes', 'ng');
-    url.searchParams.set('q', trimmed);
-    const response = await fetch(url, {
-      headers: {
-        'user-agent': 'MoveTraq/1.0 (address geocoding)',
-        accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(3500),
-    });
-    if (!response.ok) return null;
-    const items = await response.json();
-    const item = Array.isArray(items) ? items[0] : null;
-    if (!item) return null;
-    return {
-      id: `osm-${item.place_id}`,
-      name: item.name || item.display_name,
-      address: item.display_name,
-      latitude: Number(item.lat),
-      longitude: Number(item.lon),
-      source: 'osm',
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function placeSuggestions(query) {
-  const local = localPlaceSuggestions(query);
-  if (String(query || '').trim().length < 3) return local;
-
-  try {
-    const google = await googlePlaceSuggestions(query);
-    if (google.length) {
-      return [...google, ...local]
-        .filter((item, index, all) => all.findIndex((other) => other.address === item.address) === index)
-        .slice(0, 6);
-    }
-  } catch {
-    // Fall through to OSM/local suggestions.
-  }
-
-  const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('limit', '6');
-  url.searchParams.set('countrycodes', 'ng');
-  url.searchParams.set('q', query);
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'user-agent': 'MoveTraq/1.0 (address autocomplete)',
-        accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(3500),
-    });
-    if (!response.ok) return local;
-
-    const items = await response.json();
-    const remote = items.map((item) => {
-      const address = item.address || {};
-      const name =
-        item.name ||
-        address.road ||
-        address.suburb ||
-        address.city ||
-        address.state ||
-        item.display_name;
-      return {
-        id: `osm-${item.place_id}`,
-        name,
-        address: item.display_name,
-        latitude: Number(item.lat),
-        longitude: Number(item.lon),
-        source: 'osm',
-      };
-    });
-    return [...remote, ...local]
-      .filter((item, index, all) => all.findIndex((other) => other.address === item.address) === index)
-      .slice(0, 6);
-  } catch {
-    return local;
-  }
-}
-
 function requireOrderAccess(user, order) {
   if (order.targetDelivererId) {
     return (
@@ -1042,19 +791,20 @@ async function handleRequest(req, res) {
 
     if (req.method === 'GET' && path === '/places/autocomplete') {
       const query = String(url.searchParams.get('q') || '').trim();
-      json(res, 200, { suggestions: await placeSuggestions(query) });
+      json(res, 200, await mobileMaps.command(user,'search',{query}));
       return;
     }
 
     if (req.method === 'GET' && path === '/places/geocode') {
       const query = String(url.searchParams.get('q') || '').trim();
-      const result = await geocodeAddress(query);
-      if (!result) {
-        json(res, 404, { error: 'Address could not be geocoded.' });
-        return;
-      }
-      json(res, 200, { location: result });
+      json(res, 200, await mobileMaps.command(user,'geocode',{query}));
       return;
+    }
+    if (req.method === 'POST' && path === '/places/reverse') {
+      json(res,200,await mobileMaps.command(user,'reverse',body));return;
+    }
+    if (req.method === 'POST' && path === '/maps/route') {
+      json(res,200,await mobileMaps.command(user,'route',body));return;
     }
 
     if (req.method === 'GET' && path === '/orders') {
@@ -1090,10 +840,12 @@ async function handleRequest(req, res) {
       if(body.targetDelivererId){const target=users.get(String(body.targetDelivererId));if(!target)throw new PaymentError(404,'Deliverer not found.');await delivererAccess.requireApproved(target);}
       const delivererId = autoAccept ? String(body.delivererId) : null;
       const delivererName = autoAccept ? String(body.delivererName || '') : null;
-      const pickupAddress = text(body.pickupAddress).trim() || 'Current location';
-      const dropoffAddress = text(body.dropoffAddress).trim() || 'Lekki Phase 1';
+      const pickupAddress = text(body.pickupAddress).trim();
+      const dropoffAddress = text(body.dropoffAddress).trim();
       const pickupLocation = readOptionalLocation(body.pickupLocation);
       const dropoffLocation = readOptionalLocation(body.dropoffLocation);
+      if(!pickupAddress||!dropoffAddress||!pickupLocation||!dropoffLocation)throw new PaymentError(422,'Select a valid pickup and destination first.');
+      const route = await mobileMaps.command(user,'route',{pickup:pickupLocation,destination:dropoffLocation});
 
       const order = {
         ...body,
@@ -1103,6 +855,7 @@ async function handleRequest(req, res) {
         senderName: user.name,
         pickupAddress,
         dropoffAddress,
+        route,
         pickupLocation,
         dropoffLocation,
         delivererId,
@@ -1126,6 +879,9 @@ async function handleRequest(req, res) {
         escrowRefunded: false,
       };
       addDeliveryEvent(order, 'created', user.uid, targetDelivererName ? 'P2P request created' : 'Order opened');
+      await mobileMaps.command(user,'register-order',{orderId:order.id,
+        pickup:{...pickupLocation,address:pickupAddress,placeId:body.pickupPlaceId||null},
+        destination:{...dropoffLocation,address:dropoffAddress,placeId:body.dropoffPlaceId||null},route});
       orders.set(order.id, order);
       if (price > 0) {
         addWalletTransaction(
@@ -1210,6 +966,18 @@ async function handleRequest(req, res) {
         return;
       }
 
+      if (req.method === 'GET' && action === 'tracking') {
+        if(![order.senderId,order.delivererId].includes(user.uid))throw new PaymentError(403,'Only delivery participants can track this order.');
+        let current=null;
+        if(['accepted','pickedUp'].includes(order.status)){
+          const result=await mobileMaps.command(user,'read-location',{orderId:order.id});
+          current=result.location;
+        }
+        json(res,200,{order:{...order,courierLocation:current?{latitude:current.latitude,longitude:current.longitude}:null,
+          courierLocationUpdatedAt:current?.captured_at||null,courierLocationTrail:[],simulatedLocation:false}});
+        return;
+      }
+
       if (req.method === 'POST' && action === 'stage') {
         if (!order.delivererId || order.delivererId !== user.uid) {
           json(res, 403, { error: 'Only the assigned deliverer can update delivery progress.' });
@@ -1236,6 +1004,7 @@ async function handleRequest(req, res) {
       }
 
       if (req.method === 'POST' && action === 'location') {
+        if(!['accepted','pickedUp'].includes(order.status))throw new PaymentError(409,'Location sharing is available only during an active delivery.');
         if (!order.delivererId || order.delivererId !== user.uid) {
           json(res, 403, { error: 'Only the assigned deliverer can update courier location.' });
           return;
@@ -1245,9 +1014,10 @@ async function handleRequest(req, res) {
           json(res, 400, { error: 'Valid latitude and longitude are required.' });
           return;
         }
+        await mobileMaps.command(user,'location',{orderId:order.id,senderId:order.senderId,latitude:location.latitude,longitude:location.longitude,accuracy:body.accuracy,capturedAt:body.capturedAt});
         order.courierLocation = location;
         order.simulatedLocation = false;
-        order.courierLocationUpdatedAt = now();
+        order.courierLocationUpdatedAt = body.capturedAt;
         const trail = Array.isArray(order.courierLocationTrail)
           ? order.courierLocationTrail
           : [];
@@ -1258,7 +1028,7 @@ async function handleRequest(req, res) {
           Number(lastTrailPoint.longitude) !== location.longitude
         ) {
           trail.push({ ...location, updatedAt: order.courierLocationUpdatedAt });
-          order.courierLocationTrail = trail.slice(-120);
+          order.courierLocationTrail = trail.slice(-30);
         }
         await saveStore();
         json(res, 200, { order });
@@ -1531,46 +1301,19 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === 'GET' && path === '/users/me/addresses') {
-      json(res, 200, { addresses: savedAddresses.get(user.uid) || [] });
-      return;
+      json(res,200,await mobileMaps.command(user,'addresses'));return;
     }
-
     if (req.method === 'POST' && path === '/users/me/addresses') {
-      const label = text(body.label, '', 80);
-      const address = text(body.address, '', 280);
-      if (!label || !address) {
-        json(res, 400, { error: 'Label and address are required.' });
-        return;
-      }
-
-      const list = savedAddresses.get(user.uid) || [];
-      const addressId = text(body.id, '', 80) || id('addr');
-      const existingIndex = list.findIndex((item) => item.id === addressId);
-      const item = {
-        id: addressId,
-        label,
-        address,
-        createdAt: existingIndex === -1 ? now() : list[existingIndex].createdAt,
-      };
-      if (existingIndex === -1) {
-        list.push(item);
-      } else {
-        list[existingIndex] = item;
-      }
-      savedAddresses.set(user.uid, list);
-      await saveStore();
-      json(res, 201, { address: item, addresses: list });
-      return;
+      const resolved=await mobileMaps.command(user,'geocode',{query:body.address});
+      const input={...(body.id?{id:body.id}:{}),label:body.label,address:resolved.location.address,
+        latitude:resolved.location.latitude,longitude:resolved.location.longitude,placeId:resolved.location.placeId,isDefault:body.isDefault===true};
+      const saved=await mobileMaps.command(user,'save-address',input);
+      json(res,201,{...saved,...await mobileMaps.command(user,'addresses')});return;
     }
-
-    const addressDeleteMatch = path.match(/^\/users\/me\/addresses\/([^/]+)\/delete$/);
-    if (req.method === 'POST' && addressDeleteMatch) {
-      const list = savedAddresses.get(user.uid) || [];
-      const next = list.filter((item) => item.id !== addressDeleteMatch[1]);
-      savedAddresses.set(user.uid, next);
-      await saveStore();
-      json(res, 200, { addresses: next });
-      return;
+    const addressAction=path.match(/^\/users\/me\/addresses\/([^/]+)\/(delete|select)$/);
+    if(req.method==='POST'&&addressAction){
+      await mobileMaps.command(user,addressAction[2]==='delete'?'delete-address':'default-address',{id:addressAction[1]});
+      json(res,200,await mobileMaps.command(user,'addresses'));return;
     }
 
     if (req.method === 'GET' && path === '/users/me/security') {

@@ -16,7 +16,7 @@ different repository/schema and must not be used for this checkout.
    services before creating replacements. Do not create a new database in place
    of the existing one or provision paid resources without approval.
 2. Check migration history, back up the existing database and apply only missing
-   numeric migrations `0001` through `0014`. Never apply reference migrations.
+   numeric migrations `0001` through `0016`. Never apply reference migrations.
    SQL tests have run locally, not against the hosted project.
 3. In Render, create/sync a Blueprint from the approved GitHub repository using
    `render.production.yaml`. The API is explicitly a free web service; the admin
@@ -40,6 +40,13 @@ their settings updated separately. See [Render Blueprint configuration](https://
 No local `.env` is uploaded or copied into GitHub by this setup.
 
 ## Remaining Product Work
+
+The mobile maps bridge requires migrations `0015` (mobile approval identities)
+and `0016` (saved addresses, routes and latest GPS samples). Configure the same
+`MONITORING_SERVICE_TOKEN` on both APIs and set the legacy API's
+`DELIVERER_AUTHORITY_URL` to the HTTPS Supabase backend origin. Set `MAPS_PROVIDER=osm` on the Supabase backend and configure `OSRM_URL` and `NOMINATIM_URL` for the intended routing/geocoding services. The mobile map needs no Google key. See [OSM maps setup](OSM_MAPS.md) for defaults and usage limits. Verify address search, pin reverse lookup, order
+creation and participant tracking on a device after deployment; local checks
+use isolated fixtures and embedded PostgreSQL.
 
 Online hosting is not a declaration of production readiness. The current
 Flutter UI still depends on the legacy server for many workflows. Do not

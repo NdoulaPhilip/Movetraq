@@ -5,6 +5,7 @@ import '../models/app_user.dart';
 import '../models/misc_models.dart';
 import '../models/parcel_order.dart';
 import 'node_api_client.dart';
+import 'location_service.dart';
 
 /// App data gateway.
 ///
@@ -81,58 +82,6 @@ class LocalDataService {
     'MOVETRAQ_ALLOW_LOCAL_FALLBACK',
     defaultValue: false,
   );
-
-  static const List<AddressSuggestion> _fallbackAddresses = [
-    AddressSuggestion(
-      id: 'local-ikeja-city-mall',
-      name: 'Ikeja City Mall',
-      address: 'Obafemi Awolowo Way, Ikeja, Lagos',
-      latitude: 6.6143,
-      longitude: 3.3571,
-    ),
-    AddressSuggestion(
-      id: 'local-computer-village',
-      name: 'Computer Village',
-      address: 'Otigba Street, Ikeja, Lagos',
-      latitude: 6.5965,
-      longitude: 3.3421,
-    ),
-    AddressSuggestion(
-      id: 'local-unilag',
-      name: 'University of Lagos',
-      address: 'Akoka, Yaba, Lagos',
-      latitude: 6.5158,
-      longitude: 3.3899,
-    ),
-    AddressSuggestion(
-      id: 'local-yaba',
-      name: 'Yaba Bus Park',
-      address: 'Yaba, Lagos',
-      latitude: 6.5095,
-      longitude: 3.3711,
-    ),
-    AddressSuggestion(
-      id: 'local-lekki-phase-1',
-      name: 'Lekki Phase 1',
-      address: 'Admiralty Way, Lekki, Lagos',
-      latitude: 6.4474,
-      longitude: 3.4723,
-    ),
-    AddressSuggestion(
-      id: 'local-victoria-island',
-      name: 'Victoria Island',
-      address: 'Ahmadu Bello Way, Lagos',
-      latitude: 6.4281,
-      longitude: 3.4219,
-    ),
-    AddressSuggestion(
-      id: 'local-ajah-market',
-      name: 'Ajah Market',
-      address: 'Lekki-Epe Expressway, Ajah, Lagos',
-      latitude: 6.4698,
-      longitude: 3.5852,
-    ),
-  ];
 
   // ---------------------------------------------------------------------------
   // Users
@@ -653,83 +602,71 @@ class LocalDataService {
     _authController.add(null);
   }
 
-  Future<List<AddressSuggestion>> searchAddresses(String query) async {
-    final trimmed = query.trim();
-    if (trimmed.length < 2) return [];
-
+  NodeApiClient get _liveApi {
     final api = _api;
-    if (api != null && api.isAuthenticated) {
-      try {
-        final suggestions = await api.addressSuggestions(trimmed);
-        if (suggestions.isNotEmpty) return suggestions;
-      } catch (_) {
-        // Keep address entry usable while the hosted API/geocoder is waking up.
-      }
+    if (api == null || !api.isAuthenticated) {
+      throw StateError('Sign in to use live location services.');
     }
-
-    final needle = trimmed.toLowerCase();
-    return _fallbackAddresses
-        .where(
-          (item) =>
-              item.name.toLowerCase().contains(needle) ||
-              item.address.toLowerCase().contains(needle),
-        )
-        .take(6)
-        .toList();
+    return api;
   }
+
+  Future<List<AddressSuggestion>> searchAddresses(String query) async {
+    if (query.trim().length < 3) return [];
+    return _liveApi.addressSuggestions(query.trim());
+  }
+
+  Future<AddressSuggestion> currentAddress() async {
+    final owner = currentUser?.uid;
+    if (owner == null) {
+      throw StateError('Sign in to use your current location.');
+    }
+    final point = await const LocationService().getCurrentPosition();
+    if (currentUser?.uid != owner) throw StateError('Your account changed.');
+    String? syncWarning;
+    try {
+      await updateCurrentUserLocation(point.latitude, point.longitude);
+    } catch (_) {
+      syncWarning =
+          'GPS found. Your location could not be saved. Please retry.';
+    }
+    if (currentUser?.uid != owner) throw StateError('Your account changed.');
+    try {
+      final result =
+          await reverseAddress(LatLng(point.latitude, point.longitude));
+      if (currentUser?.uid != owner) throw StateError('Your account changed.');
+      return AddressSuggestion(
+          id: result.id,
+          name: result.name,
+          address: result.address,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          placeId: result.placeId,
+          syncWarning: syncWarning);
+    } catch (_) {
+      if (currentUser?.uid != owner) throw StateError('Your account changed.');
+      return AddressSuggestion(
+          id: 'device-gps',
+          name: 'Current GPS location',
+          address:
+              '${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}',
+          latitude: point.latitude,
+          longitude: point.longitude,
+          syncWarning: syncWarning);
+    }
+  }
+
+  Future<AddressSuggestion> reverseAddress(LatLng point) =>
+      _liveApi.reverseAddress(point);
+  Future<Map<String, dynamic>> route(LatLng pickup, LatLng destination) =>
+      _liveApi.route(pickup, destination);
 
   Future<LatLng?> resolveAddressLocation(String address) async {
-    final trimmed = address.trim();
-    if (trimmed.isEmpty) return null;
-
-    final api = _api;
-    if (api != null && api.isAuthenticated) {
-      try {
-        final location = await api.geocodeAddress(trimmed);
-        if (location.latitude != null && location.longitude != null) {
-          return LatLng(location.latitude!, location.longitude!);
-        }
-      } catch (_) {
-        // Continue to suggestions/local fallback when the backend geocoder is
-        // unavailable or the address cannot be resolved.
-      }
+    if (address.trim().isEmpty) return null;
+    final result = await _liveApi.geocodeAddress(address.trim());
+    if (result.latitude == null || result.longitude == null) {
+      throw StateError('No coordinates were returned for this address.');
     }
-
-    final suggestions = await searchAddresses(trimmed);
-    if (suggestions.isNotEmpty) {
-      final exact = suggestions.where(
-        (item) =>
-            item.address.toLowerCase() == trimmed.toLowerCase() ||
-            item.name.toLowerCase() == trimmed.toLowerCase(),
-      );
-      final match = exact.isNotEmpty ? exact.first : suggestions.first;
-      if (match.latitude != null && match.longitude != null) {
-        return LatLng(match.latitude!, match.longitude!);
-      }
-    }
-
-    return _approximateLagosLocation(trimmed);
-  }
-
-  LatLng _approximateLagosLocation(String seed) {
-    var hash = 0;
-    for (final unit in seed.codeUnits) {
-      hash = (hash * 31 + unit) & 0x7fffffff;
-    }
-
-    // Keep manually typed addresses usable by placing them inside greater
-    // Lagos until a real geocoder match is available.
-    final latFraction = (hash % 10000) / 10000;
-    final lngFraction = ((hash ~/ 10000) % 10000) / 10000;
-    const minLat = 6.4200;
-    const maxLat = 6.6200;
-    const minLng = 3.3000;
-    const maxLng = 3.6000;
-
-    return LatLng(
-      minLat + (maxLat - minLat) * latFraction,
-      minLng + (maxLng - minLng) * lngFraction,
-    );
+    return LatLng(result.latitude!, result.longitude!);
   }
 
   // ===========================================================================
@@ -785,56 +722,46 @@ class LocalDataService {
   }
 
   /// Watches a single order.
-  Stream<ParcelOrder?> watchOrder(
-    String orderId,
-  ) {
-    final api = _api;
+  Future<ParcelOrder> trackingOrder(String orderId) async {
+    final owner = currentUser?.uid;
+    final order = await _liveApi.trackedOrder(orderId);
+    if (owner == null || currentUser?.uid != owner) {
+      throw StateError('Your account changed.');
+    }
+    _storeOrder(order);
+    return order;
+  }
 
-    if (api != null) {
-      late StreamController<ParcelOrder?> controller;
-      Timer? timer;
-      StreamSubscription<Map<String, ParcelOrder>>? subscription;
-
-      Future<void> refresh() async {
-        try {
-          _storeOrders(await api.orders());
-          if (!controller.isClosed) {
-            controller.add(_orders[orderId]);
-          }
-        } catch (_) {
-          if (!controller.isClosed) {
-            controller.add(_orders[orderId]);
-          }
+  Stream<ParcelOrder?> watchOrder(String orderId) {
+    final owner = currentUser?.uid;
+    late StreamController<ParcelOrder?> controller;
+    Timer? timer;
+    bool fetching = false;
+    Future<void> refresh() async {
+      if (fetching || controller.isClosed) return;
+      fetching = true;
+      try {
+        if (owner == null || currentUser?.uid != owner) {
+          throw StateError('Sign in again to track this delivery.');
         }
+        final order = await _liveApi.trackedOrder(orderId);
+        if (!controller.isClosed && currentUser?.uid == owner) {
+          controller.add(order);
+        }
+      } catch (error, stack) {
+        if (!controller.isClosed) controller.addError(error, stack);
+      } finally {
+        fetching = false;
       }
-
-      controller = StreamController<ParcelOrder?>(
-        onListen: () {
-          controller.add(_orders[orderId]);
-          subscription = _ordersController.stream.listen(
-            (orders) => controller.add(orders[orderId]),
-          );
-          refresh();
-          timer = Timer.periodic(
-            const Duration(seconds: 1),
-            (_) => refresh(),
-          );
-        },
-        onCancel: () async {
-          timer?.cancel();
-          await subscription?.cancel();
-        },
-      );
-
-      return controller.stream;
     }
 
-    return _withLocalTracking(
-      () => _orders[orderId],
-      _ordersController.stream.map(
-        (orders) => orders[orderId],
-      ),
-    );
+    controller = StreamController<ParcelOrder?>(onListen: () {
+      refresh();
+      timer = Timer.periodic(const Duration(seconds: 5), (_) => refresh());
+    }, onCancel: () {
+      timer?.cancel();
+    });
+    return controller.stream;
   }
 
   /// Gets an order immediately.
@@ -1048,11 +975,14 @@ class LocalDataService {
   Future<void> updateCourierLocation(
     String orderId,
     double lat,
-    double lng,
-  ) async {
+    double lng, {
+    required double accuracy,
+    required DateTime capturedAt,
+  }) async {
     final api = _api;
     if (api != null) {
-      _storeOrder(await api.updateCourierLocation(orderId, lat, lng));
+      _storeOrder(await api.updateCourierLocation(orderId, lat, lng,
+          accuracy: accuracy, capturedAt: capturedAt));
       return;
     }
 
@@ -1080,8 +1010,13 @@ class LocalDataService {
     double lng,
   ) async {
     final api = _api;
+    final owner = currentUser?.uid;
     if (api != null && api.isAuthenticated) {
-      _storeUser(await api.updateCurrentLocation(lat, lng), makeCurrent: true);
+      final user = await api.updateCurrentLocation(lat, lng);
+      if (owner == null || currentUser?.uid != owner || user.uid != owner) {
+        throw StateError('Your account changed.');
+      }
+      _storeUser(user, makeCurrent: true);
     }
   }
 

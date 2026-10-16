@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/premium_ui.dart';
+import '../../widgets/automatic_location_map.dart';
 
 class DHomeScreen extends StatelessWidget {
   const DHomeScreen({super.key});
@@ -18,6 +19,8 @@ class DHomeScreen extends StatelessWidget {
           onPressed: () => Navigator.pushNamed(context, '/notifications'),
           icon: const Icon(Icons.notifications_outlined))
     ], children: [
+      const AutomaticLocationMap(),
+      const SizedBox(height: 18),
       SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(profile?.delivererOnline == true

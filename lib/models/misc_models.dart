@@ -67,6 +67,9 @@ class SavedAddress {
   final String address;
   final DateTime createdAt;
   final bool isDefault;
+  final double? latitude;
+  final double? longitude;
+  final String? placeId;
 
   SavedAddress({
     required this.id,
@@ -74,6 +77,9 @@ class SavedAddress {
     required this.address,
     required this.createdAt,
     this.isDefault = false,
+    this.latitude,
+    this.longitude,
+    this.placeId,
   });
 
   factory SavedAddress.fromJson(Map<String, dynamic> json) {
@@ -82,7 +88,11 @@ class SavedAddress {
       label: json['label'] as String? ?? '',
       address: json['address'] as String? ?? '',
       isDefault: json['is_default'] == true || json['isDefault'] == true,
-      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      placeId: json['place_id'] as String? ?? json['placeId'] as String?,
+      createdAt: DateTime.tryParse(
+              (json['created_at'] ?? json['createdAt']) as String? ?? '') ??
           DateTime.now(),
     );
   }
@@ -93,6 +103,9 @@ class SavedAddress {
       'label': label,
       'address': address,
       'isDefault': isDefault,
+      'latitude': latitude,
+      'longitude': longitude,
+      'placeId': placeId,
       'createdAt': createdAt.toIso8601String(),
     };
   }

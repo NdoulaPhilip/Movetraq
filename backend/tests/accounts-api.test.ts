@@ -25,7 +25,8 @@ const fixtures = vi.hoisted(() => {
 });
 
 vi.mock('../src/config/env.js', () => ({
-  env: { NODE_ENV: 'test', LOG_LEVEL: 'silent', AUTH_REDIRECT_URL: 'movetraq://auth/callback',ADMIN_INVITE_REDIRECT_URL:'http://localhost:5173/accept-invitation' },
+  // Exercise the optional provider's unconfigured path without external requests.
+  env: { MAPS_PROVIDER: 'google', NODE_ENV: 'test', LOG_LEVEL: 'silent', AUTH_REDIRECT_URL: 'movetraq://auth/callback',ADMIN_INVITE_REDIRECT_URL:'http://localhost:5173/accept-invitation' },
   corsOrigins: ['http://localhost:5173'],
 }));
 vi.mock('../src/config/supabase.js', () => ({

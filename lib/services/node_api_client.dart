@@ -22,6 +22,8 @@ class AddressSuggestion {
     required this.address,
     this.latitude,
     this.longitude,
+    this.placeId,
+    this.syncWarning,
   });
 
   final String id;
@@ -29,14 +31,23 @@ class AddressSuggestion {
   final String address;
   final double? latitude;
   final double? longitude;
+  final String? placeId;
+  final String? syncWarning;
 
   factory AddressSuggestion.fromJson(Map<String, dynamic> json) {
     return AddressSuggestion(
-      id: json['id'] as String? ?? json['address'] as String? ?? '',
-      name: json['name'] as String? ?? json['address'] as String? ?? '',
+      id: json['id'] as String? ??
+          json['placeId'] as String? ??
+          json['address'] as String? ??
+          '',
+      name: json['name'] as String? ??
+          json['label'] as String? ??
+          json['address'] as String? ??
+          '',
       address: json['address'] as String? ?? json['name'] as String? ?? '',
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
+      placeId: json['placeId'] as String?,
     );
   }
 }
@@ -81,6 +92,21 @@ class NodeApiClient {
   String? _token;
 
   bool get isAuthenticated => _token != null;
+  Future<AddressSuggestion> reverseAddress(LatLng point) async {
+    final data = await _post('/places/reverse', point.toJson());
+    return AddressSuggestion.fromJson(
+        Map<String, dynamic>.from(data['location'] as Map));
+  }
+
+  Future<Map<String, dynamic>> route(LatLng pickup, LatLng destination) =>
+      _post('/maps/route',
+          {'pickup': pickup.toJson(), 'destination': destination.toJson()});
+  Future<ParcelOrder> trackedOrder(String id) async {
+    final data = await _get('/orders/${Uri.encodeComponent(id)}/tracking');
+    return ParcelOrder.fromJson(
+        Map<String, dynamic>.from(data['order'] as Map));
+  }
+
   Future<Map<String, dynamic>> delivererAccess() =>
       _send('GET', '/deliverer-access');
 
@@ -245,11 +271,15 @@ class NodeApiClient {
   Future<ParcelOrder> updateCourierLocation(
     String orderId,
     double lat,
-    double lng,
-  ) async {
+    double lng, {
+    required double accuracy,
+    required DateTime capturedAt,
+  }) async {
     final data = await _post('/orders/$orderId/location', {
       'latitude': lat,
       'longitude': lng,
+      'accuracy': accuracy,
+      'capturedAt': capturedAt.toUtc().toIso8601String(),
     });
     return ParcelOrder.fromJson(data['order'] as Map<String, dynamic>);
   }

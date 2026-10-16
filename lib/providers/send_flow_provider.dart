@@ -185,13 +185,16 @@ class SendFlowProvider extends ChangeNotifier {
   String get selectedSpeedLabel => expressSpeedLabels[speedIndex];
 
   Future<String> submitOrder(AppUser sender) async {
+    if (pickupAddress.trim().isEmpty || dropoffAddress.trim().isEmpty) {
+      throw StateError('Select pickup and destination addresses.');
+    }
     final resolvedPickupLocation = pickupLocation ??
         await _data.resolveAddressLocation(
-          pickupAddress.isEmpty ? 'Current location' : pickupAddress,
+          pickupAddress,
         );
     final resolvedDropoffLocation = dropoffLocation ??
         await _data.resolveAddressLocation(
-          dropoffAddress.isEmpty ? 'Lekki Phase 1' : dropoffAddress,
+          dropoffAddress,
         );
     final deliveryFee = effectivePrice;
     final price = totalPrice;
@@ -205,8 +208,8 @@ class SendFlowProvider extends ChangeNotifier {
       delivererName: null,
       title: title.isEmpty ? _defaultTitleFor(category) : title,
       category: category,
-      pickupAddress: pickupAddress.isEmpty ? 'Current location' : pickupAddress,
-      dropoffAddress: dropoffAddress.isEmpty ? 'Lekki Phase 1' : dropoffAddress,
+      pickupAddress: pickupAddress,
+      dropoffAddress: dropoffAddress,
       pickupLocation: resolvedPickupLocation,
       dropoffLocation: resolvedDropoffLocation,
       price: price,

@@ -1,4 +1,5 @@
-import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as maps;
 
 import '../models/parcel_order.dart';
 
@@ -13,7 +14,7 @@ maps.LatLng? mapPoint(LatLng? value) {
   return maps.LatLng(value.latitude, value.longitude);
 }
 
-maps.LatLngBounds mapBounds(List<maps.LatLng> points) {
+LatLngBounds mapBounds(List<maps.LatLng> points) {
   if (points.isEmpty) throw ArgumentError('At least one location is required.');
   final latitudes = points.map((point) => point.latitude).toList()..sort();
   final longitudes = points.map((point) => point.longitude).toList()..sort();
@@ -39,6 +40,10 @@ maps.LatLngBounds mapBounds(List<maps.LatLng> points) {
     west = ((west - .001 + 180) % 360) - 180;
     east = ((east + .001 + 180) % 360) - 180;
   }
-  return maps.LatLngBounds(
-      southwest: maps.LatLng(south, west), northeast: maps.LatLng(north, east));
+  final width = (east - west + 360) % 360;
+  return LatLngBounds.worldSafe(
+      north: north,
+      south: south,
+      longitudeCenter: west + width / 2,
+      longitudeWidth: width);
 }

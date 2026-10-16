@@ -11,12 +11,18 @@ beforeAll(async()=>{
   const socket=createServer();await new Promise<void>(resolve=>socket.listen(0,'127.0.0.1',resolve));
   const port=(socket.address() as {port:number}).port;await new Promise<void>(resolve=>socket.close(()=>resolve()));base=`http://127.0.0.1:${port}`;
   // Isolated in-memory test server; this fixture never contacts hosted services.
-  const source=`let status='submitted';process.on('message',message=>{status=message.status;process.send({status});});global.fetch=async()=>new Response(JSON.stringify({success:true,data:{status,canDeliver:status==='approved'}}));require('./server/src/server.js');`;
+  const source=`let status='submitted';process.on('message',message=>{status=message.status;process.send({status});});global.fetch=async(url,options)=>{
+    const command=JSON.parse(options.body).command;
+    const data=String(url).includes('/internal/mobile-maps')
+      ? command==='route'?{distanceMeters:1000,durationSeconds:120,points:[{latitude:6,longitude:3},{latitude:6.1,longitude:3.1}]}:{saved:true}
+      : {status,canDeliver:status==='approved'};
+    return new Response(JSON.stringify({success:true,data}));
+  };require('./server/src/server.js');`;
   child=spawn(process.execPath,['-e',source],{cwd:fileURLToPath(new URL('../../',import.meta.url)),env:{...process.env,NODE_ENV:'test',PORT:String(port),DATABASE_URL:'',POSTGRES_URL:'',JWT_SECRET:'isolated-test-jwt-not-production',MONITORING_SERVICE_TOKEN:'isolated-private-service-test-token',DELIVERER_AUTHORITY_URL:'https://authority.example.test'},stdio:['ignore','pipe','pipe','ipc']});
   await new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Isolated server startup timed out')),15000);child.once('exit',()=>{clearTimeout(timeout);reject(new Error('Isolated server stopped'));});child.stdout!.on('data',data=>{if(String(data).includes('API listening')){clearTimeout(timeout);resolve();}});});
   const register=async(email:string)=>request('/auth/signup','POST',{name:'Fixture sender',email,phone:'',password:'fixture-password-only'});
   sender=(await register('sender-one@example.test')).body.token;applicant=(await register('applicant@example.test')).body.token;
-  const order=await request('/orders','POST',{pickupAddress:'Fixture pickup',dropoffAddress:'Fixture destination',price:0,isP2P:false},sender);
+  const order=await request('/orders','POST',{pickupAddress:'Fixture pickup',dropoffAddress:'Fixture destination',pickupLocation:{latitude:6,longitude:3},dropoffLocation:{latitude:6.1,longitude:3.1},price:0,isP2P:false},sender);
   expect(order.status).toBe(201);orderId=order.body.order.id;
 },30000);
 afterAll(()=>child?.kill());

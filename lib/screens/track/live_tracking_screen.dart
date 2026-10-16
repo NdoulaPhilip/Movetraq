@@ -5,7 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_page.dart';
-import '../../widgets/live_google_map.dart';
+import '../../widgets/live_delivery_map.dart';
 import '../../widgets/map_geometry.dart';
 import '../../widgets/mini_map.dart';
 import '../orders/order_tools.dart';
@@ -62,7 +62,7 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
             return LayoutBuilder(
                 builder: (context, constraints) => Stack(children: [
                       Positioned.fill(
-                          child: LiveGoogleMap(
+                          child: LiveDeliveryMap(
                               order: order,
                               bottomPadding:
                                   constraints.maxHeight * _sheetExtent,

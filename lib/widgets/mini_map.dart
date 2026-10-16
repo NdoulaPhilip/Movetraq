@@ -1,191 +1,75 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
-
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as geo;
 import '../models/parcel_order.dart';
 import '../theme/app_theme.dart';
-import 'google_map_status.dart';
 import 'map_geometry.dart';
+import 'provider_route.dart';
+import 'street_map.dart';
 
-class MiniMap extends StatefulWidget {
-  /// Fixed height for the map card. Pass null to fill all available space
-  /// (e.g. wrapped in `Positioned.fill` for a full-screen live map).
+class MiniMap extends StatelessWidget {
+  const MiniMap(
+      {super.key,
+      this.height = 150,
+      this.pickupLocation,
+      this.dropoffLocation,
+      this.courierLocation,
+      this.courierHeadingToPickup = false});
   final double? height;
-  final LatLng? pickupLocation;
-  final LatLng? dropoffLocation;
-  final LatLng? courierLocation;
+  final LatLng? pickupLocation, dropoffLocation, courierLocation;
   final bool courierHeadingToPickup;
-  const MiniMap({
-    super.key,
-    this.height = 150,
-    this.pickupLocation,
-    this.dropoffLocation,
-    this.courierLocation,
-    this.courierHeadingToPickup = false,
-  });
-
-  @override
-  State<MiniMap> createState() => _MiniMapState();
-}
-
-class _MiniMapState extends State<MiniMap> {
-  maps.GoogleMapController? _controller;
-  double? get height => widget.height;
-  LatLng? get pickupLocation => widget.pickupLocation;
-  LatLng? get dropoffLocation => widget.dropoffLocation;
-  LatLng? get courierLocation => widget.courierLocation;
-  bool get courierHeadingToPickup => widget.courierHeadingToPickup;
-
-  @override
-  void didUpdateWidget(covariant MiniMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.pickupLocation != pickupLocation ||
-        oldWidget.dropoffLocation != dropoffLocation ||
-        oldWidget.courierLocation != courierLocation) {
-      _fitCamera();
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  void _fitCamera() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _controller == null) return;
-      final points = [
-        mapPoint(pickupLocation),
-        mapPoint(dropoffLocation),
-        mapPoint(courierLocation)
-      ].whereType<maps.LatLng>().toList();
-      if (points.isEmpty) return;
-      _controller!
-          .moveCamera(maps.CameraUpdate.newLatLngBounds(mapBounds(points), 20))
-          .catchError(
-              (Object error) => debugPrint('Map framing unavailable: $error'));
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    final pickup = _toMapLatLng(pickupLocation);
-    final dropoff = _toMapLatLng(dropoffLocation);
-    final courier = _toMapLatLng(courierLocation);
-    final points = _routePoints(
-      pickup: pickup,
-      dropoff: dropoff,
-      courier: courier,
-      headingToPickup: courierHeadingToPickup,
-    );
-
-    final map = ConfiguredGoogleMap(
-      compact: height != null,
-      map: maps.GoogleMap(
-        onMapCreated: (controller) {
-          _controller = controller;
-          _fitCamera();
-        },
-        initialCameraPosition: maps.CameraPosition(
-          target: _initialTarget(points),
-          zoom: points.length > 1 ? 12.5 : 13.5,
-        ),
-        markers: {
-          if (pickup != null)
-            maps.Marker(
-              markerId: const maps.MarkerId('pickup'),
-              position: pickup,
-              infoWindow: const maps.InfoWindow(title: 'Pickup'),
-            ),
-          if (dropoff != null)
-            maps.Marker(
-              markerId: const maps.MarkerId('dropoff'),
-              position: dropoff,
-              infoWindow: const maps.InfoWindow(title: 'Drop-off'),
-              icon: maps.BitmapDescriptor.defaultMarkerWithHue(
-                maps.BitmapDescriptor.hueAzure,
-              ),
-            ),
-          if (courier != null)
-            maps.Marker(
-              markerId: const maps.MarkerId('courier'),
-              position: courier,
-              infoWindow: const maps.InfoWindow(title: 'Courier'),
-              icon: maps.BitmapDescriptor.defaultMarkerWithHue(
-                maps.BitmapDescriptor.hueGreen,
-              ),
-            ),
-        },
-        polylines: points.length < 2
-            ? const <maps.Polyline>{}
-            : {
-                maps.Polyline(
-                  polylineId: const maps.PolylineId('route'),
-                  points: points,
-                  color: AppColors.accent,
-                  patterns: [
-                    maps.PatternItem.dash(10),
-                    maps.PatternItem.gap(8)
-                  ],
-                  width: 4,
-                ),
-              },
-        liteModeEnabled: true,
-        myLocationButtonEnabled: false,
-        zoomControlsEnabled: false,
-        mapToolbarEnabled: false,
-        compassEnabled: false,
-        scrollGesturesEnabled: false,
-        zoomGesturesEnabled: false,
-        rotateGesturesEnabled: false,
-        tiltGesturesEnabled: false,
-      ),
-    );
-
-    if (height == null) {
-      return SizedBox.expand(child: map);
-    }
-    return SizedBox(height: height, child: map);
-  }
-
-  static const _lagosCenter = maps.LatLng(6.5244, 3.3792);
-
-  static maps.LatLng? _toMapLatLng(LatLng? value) {
-    return mapPoint(value);
-  }
-
-  static maps.LatLng _initialTarget(List<maps.LatLng> points) {
-    if (points.isEmpty) return _lagosCenter;
-    if (points.length == 1) return points.first;
-
-    final bounds = mapBounds(points);
-    final west = bounds.southwest.longitude;
-    final east = bounds.northeast.longitude;
-    final span = (east - west + 360) % 360;
-    return maps.LatLng(
-        (bounds.southwest.latitude + bounds.northeast.latitude) / 2,
-        ((west + span / 2 + 180) % 360) - 180);
-  }
-
-  static List<maps.LatLng> _routePoints({
-    required maps.LatLng? pickup,
-    required maps.LatLng? dropoff,
-    required maps.LatLng? courier,
-    required bool headingToPickup,
-  }) {
-    if (headingToPickup && courier != null) {
-      return [
-        courier,
-        if (pickup != null) pickup,
-        if (dropoff != null) dropoff,
-      ];
-    }
-
-    return [
-      if (pickup != null) pickup,
-      if (courier != null) courier,
-      if (dropoff != null) dropoff,
-    ];
+    final pickup = mapPoint(pickupLocation),
+        destination = mapPoint(dropoffLocation),
+        courier = mapPoint(courierLocation);
+    final points =
+        [pickup, destination, courier].whereType<geo.LatLng>().toList();
+    final map = ProviderRoute(
+        pickup: pickupLocation,
+        destination: dropoffLocation,
+        builder: (route, metrics, error, busy) => StreetMap(
+              key: ValueKey(points
+                  .map((point) => '${point.latitude},${point.longitude}')
+                  .join(':')),
+              initialCenter: points.isEmpty
+                  ? const geo.LatLng(0, 0)
+                  : mapBounds(points).simpleCenter,
+              initialZoom: points.isEmpty ? 2 : 13,
+              initialFit: points.isEmpty
+                  ? null
+                  : CameraFit.bounds(
+                      bounds: mapBounds(points),
+                      padding: const EdgeInsets.all(24),
+                      maxZoom: 16),
+              interactive: false,
+              markers: [
+                if (pickup != null)
+                  locationMarker('pickup', pickup, 'Pickup', Colors.red),
+                if (destination != null)
+                  locationMarker(
+                      'dropoff', destination, 'Drop-off', Colors.blue),
+                if (courier != null)
+                  locationMarker(
+                      'courier', courier, 'Current location', Colors.green),
+              ],
+              polylines: route.length < 2
+                  ? []
+                  : [
+                      Polyline(
+                          points: route
+                              .map((point) =>
+                                  geo.LatLng(point.latitude, point.longitude))
+                              .toList(),
+                          color: AppColors.accent,
+                          strokeWidth: 4,
+                          pattern:
+                              StrokePattern.dashed(segments: const [10, 8]))
+                    ],
+            ));
+    return height == null
+        ? SizedBox.expand(child: map)
+        : SizedBox(height: height, child: map);
   }
 }
 
