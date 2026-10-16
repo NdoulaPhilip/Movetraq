@@ -12,10 +12,20 @@ The backend defaults to:
 
 ```dotenv
 MAPS_PROVIDER=osm
+GEOCODER_PROVIDER=photon
+PHOTON_URL=https://photon.komoot.io
 OSRM_URL=https://router.project-osrm.org
 NOMINATIM_URL=https://nominatim.openstreetmap.org
 MAPS_USER_AGENT=MoveTraq/1.0 (https://github.com/NdoulaPhilip/Movetraq)
 ```
+
+The Render deployment uses Photon for geocoding because search and reverse lookup
+through public Nominatim returned errors from the Render service during release
+verification. Routing remains OSRM. `GEOCODER_PROVIDER=nominatim` is available for
+a suitable Nominatim endpoint. Both geocoders use the same queued, cached request
+client and preserve the selected point during reverse lookup. Photon's public
+demo also has reasonable-use limits and no availability guarantee; configure an
+appropriate hosted or self-hosted endpoint for production volume.
 
 The shared `MONITORING_SERVICE_TOKEN` and `DELIVERER_AUTHORITY_URL` bridge setup
 in [Go Online](GO_ONLINE.md) still applies. Existing migrations `0015` and `0016`
@@ -67,3 +77,4 @@ References: [flutter_map](https://docs.fleaflet.dev/),
 [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/),
 [Nominatim policy](https://operations.osmfoundation.org/policies/nominatim/),
 [OSRM API](https://project-osrm.org/docs/v5.24.0/api/).
+[Photon](https://github.com/komoot/photon).

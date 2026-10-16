@@ -113,7 +113,7 @@ flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.
 
 Maps now use OpenStreetMap through `flutter_map` and require no Google Maps key. GPS is requested after login on the dashboards. See [OSM maps setup and testing](docs/OSM_MAPS.md).
 
-The legacy mobile API forwards address lookup, routing and tracking to the Supabase backend through the existing authenticated bridge. OSRM and Nominatim are the default routing and geocoding providers. See [OSM setup](docs/OSM_MAPS.md) for service configuration and public endpoint limits.
+The legacy mobile API forwards address lookup, routing and tracking to the Supabase backend through the existing authenticated bridge. OSRM handles road routing; the Render deployment uses Photon for OSM geocoding. See [OSM setup](docs/OSM_MAPS.md) for service configuration and public endpoint limits.
 
 Courier tracking uses fresh device GPS samples while the active delivery screen is open. Tracking is restricted to delivery participants; stale samples expire from the live view. Road lines and travel metrics come from the route provider. Missing provider configuration produces an unavailable state.
 

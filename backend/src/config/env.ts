@@ -17,6 +17,8 @@ const envSchema = z.object({
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   GOOGLE_GEOCODING_API_KEY: z.string().optional(),
   MAPS_PROVIDER: z.enum(['osm', 'google']).default('osm'),
+  GEOCODER_PROVIDER: z.enum(['nominatim', 'photon']).default('nominatim'),
+  PHOTON_URL: z.string().url().default('https://photon.komoot.io'),
   OSRM_URL: z.string().url().default('https://router.project-osrm.org'),
   NOMINATIM_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
   MAPS_USER_AGENT: z.string().min(8).default('MoveTraq/1.0 (https://github.com/NdoulaPhilip/Movetraq)'),

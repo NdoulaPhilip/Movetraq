@@ -68,7 +68,8 @@ const token = services.backend.values.MONITORING_SERVICE_TOKEN || services.mobil
   local.MONITORING_SERVICE_TOKEN || randomBytes(32).toString('hex');
 if (token.length < 32) throw new Error('The existing bridge token must be at least 32 characters.');
 const desired = {
-  backend:{MAPS_PROVIDER:'osm',OSRM_URL:local.OSRM_URL || 'https://router.project-osrm.org',
+  backend:{MAPS_PROVIDER:'osm',GEOCODER_PROVIDER:local.GEOCODER_PROVIDER || 'photon',
+    PHOTON_URL:local.PHOTON_URL || 'https://photon.komoot.io',OSRM_URL:local.OSRM_URL || 'https://router.project-osrm.org',
     NOMINATIM_URL:local.NOMINATIM_URL || 'https://nominatim.openstreetmap.org',
     MAPS_USER_AGENT:local.MAPS_USER_AGENT || 'MoveTraq/1.0 (https://github.com/NdoulaPhilip/Movetraq)',
     MONITORING_SERVICE_TOKEN:token,MOBILE_MONITORING_URL:services.mobile.serviceDetails.url},

@@ -41,6 +41,10 @@ services:
         sync: false
       - key: MAPS_PROVIDER
         value: osm
+      - key: GEOCODER_PROVIDER
+        value: photon
+      - key: PHOTON_URL
+        value: https://photon.komoot.io
       - key: OSRM_URL
         value: https://router.project-osrm.org
       - key: NOMINATIM_URL
