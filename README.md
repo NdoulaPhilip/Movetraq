@@ -111,7 +111,7 @@ Build APK:
 flutter build apk --release --dart-define=MOVETRAQ_API_URL=https://movetraq-api.onrender.com
 ```
 
-Maps now use OpenStreetMap through `flutter_map` and require no Google Maps key. GPS is requested after login on the dashboards. See [OSM maps setup and testing](docs/OSM_MAPS.md).
+Google Maps display has been restored. Supply an Android Maps SDK key with `--dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY` or the existing Android build configuration. GPS and delivery tracking fixes remain. See [current map setup](docs/OSM_MAPS.md).
 
 The legacy mobile API forwards address lookup, routing and tracking to the Supabase backend through the existing authenticated bridge. OSRM handles road routing; the Render deployment uses Photon for OSM geocoding. See [OSM setup](docs/OSM_MAPS.md) for service configuration and public endpoint limits.
 

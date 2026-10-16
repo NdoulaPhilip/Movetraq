@@ -5,7 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/deliverer_tracking_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
-import '../../widgets/live_delivery_map.dart';
+import '../../widgets/live_google_map.dart';
 import '../../widgets/delivery_progress.dart';
 
 class DActiveScreen extends StatefulWidget {
@@ -79,7 +79,7 @@ class _DActiveScreenState extends State<DActiveScreen>
                 height: 340,
                 child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: LiveDeliveryMap(order: order))),
+                    child: LiveGoogleMap(order: order))),
             const SizedBox(height: 16),
             DetailRow('Pickup', order.pickupAddress),
             DetailRow('Destination', order.dropoffAddress),

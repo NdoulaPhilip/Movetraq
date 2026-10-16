@@ -1,3 +1,5 @@
+import java.util.Base64
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -27,6 +29,26 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        val localProperties = Properties().also { properties ->
+            val file = rootProject.file("local.properties")
+            if (file.exists()) {
+                file.inputStream().use(properties::load)
+            }
+        }
+        val dartDefines = (project.findProperty("dart-defines") as String?)
+            ?.split(",")
+            ?.mapNotNull { encoded ->
+                val parts = String(Base64.getDecoder().decode(encoded)).split("=", limit = 2)
+                if (parts.size == 2) parts[0] to parts[1] else null
+            }
+            ?.toMap()
+            ?: emptyMap()
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
+            dartDefines["GOOGLE_MAPS_API_KEY"]
+                ?: localProperties.getProperty("GOOGLE_MAPS_API_KEY")
+                ?: (project.findProperty("GOOGLE_MAPS_API_KEY") as String?)
+                ?: System.getenv("GOOGLE_MAPS_API_KEY")
+                ?: ""
     }
 
     buildTypes {

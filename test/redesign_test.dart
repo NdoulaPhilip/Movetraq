@@ -6,8 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:latlong2/latlong.dart' as maps;
-import 'support/map_tiles.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 import 'package:geolocator/geolocator.dart';
 import 'package:movetraq/services/location_service.dart';
 import 'package:provider/provider.dart';
@@ -41,8 +40,8 @@ import 'package:movetraq/screens/send/negotiate_screen.dart';
 import 'package:movetraq/screens/release/release_screen.dart';
 import 'package:movetraq/screens/release/release_otp_screen.dart';
 import 'package:movetraq/screens/notifications/notifications_screen.dart';
-import 'package:movetraq/widgets/street_map.dart';
-import 'package:movetraq/widgets/live_delivery_map.dart';
+import 'package:movetraq/widgets/google_map_status.dart';
+import 'package:movetraq/widgets/live_google_map.dart';
 import 'package:movetraq/screens/booking/location_screens.dart';
 import 'package:movetraq/models/parcel_order.dart';
 import 'package:movetraq/providers/auth_provider.dart';
@@ -209,6 +208,10 @@ class _HomeData extends _TestData {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(ConfiguredGoogleMap.resetConfigurationCache);
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+          const MethodChannel('movetraq/map_config'), (call) async => false);
   GoogleFonts.config.allowRuntimeFetching = false;
   setUpAll(() async {
     final heading = FontLoader('SpaceGrotesk');
@@ -271,9 +274,7 @@ void main() {
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)
               .copyWith(textScaler: TextScaler.linear(scale)),
-          child: MapTileSource(
-              create: TestMapTiles.new,
-              child: RepaintBoundary(key: captureKey, child: child!)),
+          child: RepaintBoundary(key: captureKey, child: child!),
         ),
         home: screen,
         routes: {
@@ -819,21 +820,17 @@ void main() {
       (tester) async {
     await mount(
         tester, const MapPickerScreen(locationService: _UnavailableLocation()));
-    StreetMap map() => tester.widget<StreetMap>(find.byType(StreetMap));
+    maps.GoogleMap map() => tester
+        .widget<ConfiguredGoogleMap>(find.byType(ConfiguredGoogleMap))
+        .map;
     expect(map().markers, isEmpty);
     expect(tester.widget<PrimaryButton>(find.byType(PrimaryButton)).onPressed,
         isNull);
     map().onTap!(const maps.LatLng(6.6, 3.3));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('selection')), findsOneWidget);
-    final drag = tester.widget<GestureDetector>(find.descendant(
-        of: find.byKey(const ValueKey('selection')),
-        matching: find.byType(GestureDetector)));
-    drag.onPanUpdate!(DragUpdateDetails(
-        globalPosition: Offset.zero, delta: const Offset(8, 8)));
-    await tester.pump(const Duration(milliseconds: 400));
-    map().onTap!(const maps.LatLng(6.4, 3.5));
+    expect(map().markers.single.draggable, isTrue);
+    map().markers.single.onDragEnd!(const maps.LatLng(6.4, 3.5));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('6.40000, 3.50000'), findsOneWidget);
@@ -844,13 +841,10 @@ void main() {
     flow.setDetails(dropoffLocation: const LatLng(6.7, 3.6));
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(ChangeNotifierProvider<SendFlowProvider>.value(
-        value: flow,
-        child: const MapTileSource(
-            create: TestMapTiles.new,
-            child: MaterialApp(home: MapPickerScreen()))));
+        value: flow, child: const MaterialApp(home: MapPickerScreen())));
     await tester.pumpAndSettle();
-    expect(map().initialCenter, const maps.LatLng(6.7, 3.6));
-    expect(map().markers.single.point, const maps.LatLng(6.7, 3.6));
+    expect(map().initialCameraPosition.target, const maps.LatLng(6.7, 3.6));
+    expect(map().markers.single.position, const maps.LatLng(6.7, 3.6));
     expect(tester.takeException(), isNull);
   });
 
@@ -861,7 +855,7 @@ void main() {
       await mount(tester, const LiveTrackingScreen(orderId: 'test-order'),
           width: width, scale: 1.3);
       final before = tester
-          .widget<LiveDeliveryMap>(find.byType(LiveDeliveryMap))
+          .widget<LiveGoogleMap>(find.byType(LiveGoogleMap))
           .bottomPadding;
       final sheet = find.descendant(
           of: find.byType(DraggableScrollableSheet),
@@ -870,7 +864,7 @@ void main() {
           const Offset(0, -190));
       await tester.pumpAndSettle();
       final after = tester
-          .widget<LiveDeliveryMap>(find.byType(LiveDeliveryMap))
+          .widget<LiveGoogleMap>(find.byType(LiveGoogleMap))
           .bottomPadding;
       expect(after, greaterThan(before));
       expect(tester.takeException(), isNull);
@@ -879,7 +873,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           tester
-              .widget<LiveDeliveryMap>(find.byType(LiveDeliveryMap))
+              .widget<LiveGoogleMap>(find.byType(LiveGoogleMap))
               .bottomPadding,
           closeTo(844 * .85, 1));
       expect(find.byTooltip('Zoom in'), findsNothing);

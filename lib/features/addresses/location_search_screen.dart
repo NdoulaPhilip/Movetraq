@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart' as maps;
+import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 import 'package:provider/provider.dart';
 
 import '../../models/parcel_order.dart';
@@ -10,7 +9,7 @@ import '../../services/local_data_service.dart';
 import '../../services/node_api_client.dart';
 import '../../services/location_service.dart';
 import '../../widgets/app_page.dart';
-import '../../widgets/street_map.dart';
+import '../../widgets/google_map_status.dart';
 import '../../widgets/mini_map.dart';
 import '../../widgets/map_geometry.dart';
 import '../../widgets/primary_button.dart';
@@ -176,8 +175,7 @@ class MapPickerScreen extends StatefulWidget {
 
 class _MapPickerScreenState extends State<MapPickerScreen> {
   maps.LatLng? _selected;
-  final _controller = MapController();
-  bool _mapReady = false;
+  maps.GoogleMapController? _controller;
   bool _locating = false;
   bool _resolving = false;
   AddressSuggestion? _address;
@@ -202,7 +200,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     _debounce?.cancel();
     super.dispose();
   }
@@ -241,7 +239,8 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
       if (!mounted) return;
       final point = maps.LatLng(position.latitude, position.longitude);
       _pin(point);
-      if (_mapReady) _controller.move(point, 16);
+      await _controller
+          ?.animateCamera(maps.CameraUpdate.newLatLngZoom(point, 16));
     } catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
@@ -256,38 +255,26 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
             height: 320,
             child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: StreetMap(
-                  controller: _controller,
-                  initialCenter: _selected ?? const maps.LatLng(0, 0),
-                  initialZoom: _selected == null ? 2 : 16,
-                  onMapReady: () {
-                    _mapReady = true;
-                    if (_selected != null) _controller.move(_selected!, 16);
-                  },
-                  onTap: (point) {
-                    if (!_locating) _pin(point);
-                  },
-                  markers: [
-                    if (_selected != null)
-                      Marker(
-                          key: const ValueKey('selection'),
-                          point: _selected!,
-                          width: 44,
-                          height: 44,
-                          alignment: Alignment.topCenter,
-                          child: GestureDetector(
-                              onPanUpdate: _locating
-                                  ? null
-                                  : (details) {
-                                      final camera = _controller.camera;
-                                      final screen = camera
-                                          .latLngToScreenOffset(_selected!);
-                                      _pin(camera.screenOffsetToLatLng(
-                                          screen + details.delta));
-                                    },
-                              child: const Icon(Icons.location_pin,
-                                  color: Colors.red, size: 42))),
-                  ],
+                child: ConfiguredGoogleMap(
+                  map: maps.GoogleMap(
+                    initialCameraPosition: maps.CameraPosition(
+                        target: _selected ?? const maps.LatLng(0, 0),
+                        zoom: _selected == null ? 1 : 16),
+                    onMapCreated: (controller) => _controller = controller,
+                    onTap: (point) {
+                      if (!_locating) _pin(point);
+                    },
+                    markers: {
+                      if (_selected != null)
+                        maps.Marker(
+                            markerId: const maps.MarkerId('selection'),
+                            position: _selected!,
+                            draggable: !_locating,
+                            onDragEnd: _pin),
+                    },
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
+                  ),
                 ))),
         const SizedBox(height: 18),
         if (_address != null) Text(_address!.address),

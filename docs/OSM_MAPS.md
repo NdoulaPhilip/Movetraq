@@ -1,4 +1,25 @@
-# Maps and GPS without Google billing
+# Map display restored to Google Maps
+
+The OpenStreetMap map display was undone at the user's request. Mobile maps now
+use `google_maps_flutter` again, including native map pins and map diagnostics.
+GPS validation, automatic dashboard location, saved addresses and delivery-sharing
+lifecycle fixes remain. The deployed backend still uses Photon and OSRM for address
+lookup and routes; it does not need redeployment for this display change.
+
+Google Maps display requires an Android Maps SDK key. Supply it with
+`--dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY`, `android/local.properties`,
+a Gradle property or the build environment. The Gradle decoder and Android manifest
+placeholder are restored. No Android Maps key was configured in the checked local
+properties/build environment when the display was restored.
+
+```powershell
+flutter run --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
+```
+
+The following records the previous OSM implementation and provider setup. Its
+`MAP_TILE_*` mobile build flags are no longer used by the restored Google map views.
+
+## Previous OSM implementation
 
 Mobile maps use `flutter_map` and OpenStreetMap tiles. Google Maps SDK and its
 Android key/diagnostic channel have been removed. Firebase remains configured

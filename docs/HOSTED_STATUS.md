@@ -15,7 +15,16 @@ mobile API settings and the hosted database were not replaced. No Supabase
 migrations were applied during this deployment. Read-only checks confirmed
 expected account/security/wallet/ad/pricing/admin-directory columns existed.
 
-## Maps release — 2026-10-16
+## Mobile map display restoration — 2026-10-16
+
+The user requested undoing the OSM map display. Flutter views now use Google
+Maps again; automatic GPS, saved addresses and delivery-sharing fixes remain.
+Flutter analysis and all 105 tests pass. The Android display needs a Maps SDK key,
+which was not present in the checked local Android properties/build environment.
+The existing hosted Photon/OSRM APIs below are retained; no Render configuration
+or database rollback is needed for the native map display restoration.
+
+## Maps API release — 2026-10-16
 
 - Supabase API deployment `dep-db9072rl550s73fdolh0` is live on `142a497`.
 - Mobile API deployment `dep-db904oon74is73d1t5tg` is live on `dff1e81`.
