@@ -73,6 +73,19 @@ beforeEach(() => {
 });
 
 describe('account API security and persistence contract', () => {
+  it.each([
+    ['Self approval is prohibited','SELF_REVIEW_FORBIDDEN','different authorized reviewer'],
+    ['Verification review permission required','VERIFICATION_REVIEW_FORBIDDEN','active Verification Agent'],
+    ['permission denied for table sensitive_internal_table','DELIVERY_FORBIDDEN','not allowed'],
+  ])('reports review permission failures safely: %s',async(message,code,explanation)=>{
+    fixtures.results.user_roles={data:[{role:'admin'}],error:null};
+    fixtures.rpc.mockResolvedValue({data:null,error:{code:'42501',message}});
+    const result=await request(`/admin/verification-applications/${fixtures.userId}/review`,'POST',{status:'under_review',notes:'Checking the identity document'});
+    expect(result.status).toBe(403);
+    expect(result.body.error.code).toBe(code);
+    expect(result.body.error.message).toContain(explanation);
+    expect(result.body.error.message).not.toContain('sensitive_internal_table');
+  });
   it('requires authorized review staff and binds the decision to the authenticated admin',async()=>{
     const path=`/admin/verification-applications/${fixtures.userId}/review`;
     const decision={status:'under_review',notes:'Reviewing the uploaded identity document'};
@@ -86,7 +99,10 @@ describe('account API security and persistence contract', () => {
     expect(fixtures.rpc).not.toHaveBeenCalled();
     fixtures.results.user_roles={data:[{role:'verification_agent'}],error:null};
     expect((await request(path,'POST',{...decision,adminId:'forged-admin'})).status).toBe(400);
-    expect((await request(path,'POST',decision)).status).toBe(200);
+    for(const role of ['verification_agent','admin','super_admin']){
+      fixtures.results.user_roles={data:[{role}],error:null};
+      expect((await request(path,'POST',decision)).status).toBe(200);
+    }
     expect(fixtures.rpc).toHaveBeenCalledWith('review_deliverer_application',{p_admin_id:fixtures.userId,p_application_id:fixtures.userId,p_status:'under_review',p_notes:decision.notes});
   });
   it('filters the review queue before pagination so drafts cannot hide pending applications',async()=>{

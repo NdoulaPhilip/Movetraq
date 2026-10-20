@@ -1,5 +1,27 @@
 ﻿import { expect,test } from '@playwright/test';
 
+for (const identity of ['native','mobile']) {
+  test(`${identity} applicants cannot review themselves even with Super Admin access`,async({page})=>{
+    let reviews=0;
+    await page.route('**/api/v1/**',async route=>{
+      const path=new URL(route.request().url()).pathname;let data:unknown={};
+      if(path.endsWith('/auth/signin'))data={user:{uid:'same-user',name:'Reviewer',email:'reviewer@example.test',roles:['super_admin']},session:{accessToken:'fixture-token',refreshToken:'fixture-refresh',expiresAt:9999999999}};
+      else if(path.endsWith('/admin/verification-applications'))data={applications:[{id:'application-self',user_id:identity==='native'?'same-user':null,legacy_user_id:identity==='mobile'?'user_mobile':null,legacy_account_email:identity==='mobile'?'REVIEWER@example.test':null,status:'pending_approval',identity_info:{fullName:'Own Application'},transport_info:{transportType:'walking'},safety_declarations:{},documents:[],created_at:'2026-10-20',submitted_at:'2026-10-20'}]};
+      else if(path.endsWith('/review')){reviews++;data={};}
+      await route.fulfill({json:{success:true,data}});
+    });
+    await page.goto('/');await page.getByLabel('Email',{exact:true}).fill('reviewer@example.test');
+    await page.getByLabel('Password',{exact:true}).fill('fixture-password');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+    await page.getByRole('button',{name:'Verification',exact:true}).click();
+    await page.getByRole('button',{name:'Review application for Own Application',exact:true}).click();
+    await expect(page.getByRole('alert')).toContainText('You cannot review your own deliverer application');
+    await page.getByLabel('Review notes').fill('Checking identity');
+    await expect(page.getByRole('button',{name:'Start review',exact:true})).toBeDisabled();
+    await expect(page.getByRole('button',{name:'Reject application',exact:true})).toBeDisabled();
+    expect(reviews).toBe(0);
+  });
+}
+
 test('a new application alerts reviewers and the admin can review documents and approve',async({page})=>{
   let status='pending_approval';let unread=true;const decisions:unknown[]=[];
   await page.route('**/api/v1/**',async route=>{

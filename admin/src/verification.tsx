@@ -21,6 +21,8 @@ export function Verification({ user }: { user: StaffUser }) {
   const visible = applications.filter((item) => (filter !== 'pending' || ['pending_approval','submitted', 'under_review'].includes(item.status)) &&
     `${item.identity_info.fullName ?? ''} ${item.id}`.toLowerCase().includes(search.toLowerCase()));
   const selected = applications.find((item) => item.id === selectedId);
+  const selfReview = !!selected && (selected.user_id === user.uid || (!!selected.legacy_user_id &&
+    !!user.email && selected.legacy_account_email?.trim().toLowerCase() === user.email.trim().toLowerCase()));
   const review = useMutation({ mutationFn: (status: string) => request(`/admin/verification-applications/${selected!.id}/review`, 'POST', { status, notes: notes.trim() }),
     onSuccess: async () => { setNotes(''); await queryClient.invalidateQueries({ queryKey: ['verification', user.uid] }); } });
   const actions = ['pending_approval','submitted'].includes(selected?.status??'') ? ['under_review', 'rejected'] : selected?.status === 'under_review' ?
@@ -69,18 +71,19 @@ export function Verification({ user }: { user: StaffUser }) {
           <button className="icon-button" title="Open document" aria-label={`Open ${words(document.document_type)}`} disabled={!document.upload_verified_at || opening !== null} onClick={() => void openDocument(document.id)}><ExternalLink size={17} /></button></div>)}</div>
         {documentError && <p className="error" role="alert">{documentError}</p>}
         {selected.review_notes && <p className="review-notes">{selected.review_notes}</p>}
+        {selfReview && <p className="error" role="alert">You cannot review your own deliverer application. Sign in with a different authorized reviewer account. A Super Admin can assign the Verification Agent role to another account under Administrators.</p>}
         {selected.status === 'not_started' && <p className="state-message">This application is a draft. The applicant must upload the required documents and submit it before you can approve or reject it.</p>}
         {selected.status === 'rejected' && <p className="state-message">This application was rejected. The applicant can correct their details and submit it again.</p>}
         {actions.length > 0 && <form className="review-form" onSubmit={(event) => {
           event.preventDefault();
           const decision = ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value;
-          if (decision && actions.includes(decision) && !review.isPending) review.mutate(decision);
+          if (decision && actions.includes(decision) && !review.isPending && !selfReview) review.mutate(decision);
         }}>
           <h3>Review decision</h3>
           <p>{['pending_approval','submitted'].includes(selected.status) ? 'Check the details and documents, then start review to enable approval. You can reject an unsuitable application now.' : selected.status === 'under_review' ? 'Approve only after verifying the identity, documents and safety declarations. Approval grants deliverer access in the app.' : 'Changes to deliverer access take effect in the app after its next status refresh.'}</p>
           <label>Review notes<textarea value={notes} minLength={3} maxLength={4000} required onChange={(event) => setNotes(event.target.value)} /></label>
           <small>Enter at least 3 characters. Rejection notes are shared with the applicant.</small>
-          <div className="review-actions">{actions.map(value => <button key={value} className={['rejected','suspended'].includes(value) ? 'secondary-button reject-button' : 'primary-button'} type="submit" value={value} disabled={review.isPending || notes.trim().length < 3}>{actionLabels[value]}</button>)}</div>
+          <div className="review-actions">{actions.map(value => <button key={value} className={['rejected','suspended'].includes(value) ? 'secondary-button reject-button' : 'primary-button'} type="submit" value={value} disabled={review.isPending || selfReview || notes.trim().length < 3}>{actionLabels[value]}</button>)}</div>
           {review.isPending && <p role="status">Saving decision...</p>}
           {review.isError && <p className="error" role="alert">{review.error.message}</p>}
         </form>}

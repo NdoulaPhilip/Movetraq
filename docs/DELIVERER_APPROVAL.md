@@ -89,6 +89,14 @@ writes, and approval without required verified documents are rejected. Decisions
 remain audited. Native Supabase applicants receive roles only after approval;
 legacy mobile identities use the same approved application as their authority.
 
+Self review includes a mobile applicant whose account email matches the signed-in
+reviewer's email, even when the two accounts have different IDs. Super Admin
+does not bypass this restriction. The dashboard disables these actions and the
+API returns `SELF_REVIEW_FORBIDDEN` with instructions to use a different reviewer.
+A Super Admin can authorize a separate existing account with the
+`verification_agent` role through **Administrators**. Reviewers can then process
+other applicants through the same private document and audited decision flow.
+
 Approval, rejection and suspension create durable applicant notifications.
 The legacy API imports these using stable IDs and acknowledges reads against
 the owner's Supabase inbox. Flutter refreshes approval and notification state
