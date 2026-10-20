@@ -77,6 +77,12 @@ seconds; this change does not configure email, SMS, or browser push delivery.
 
 The admin queue filters pending applications before pagination, shows verified
 private document previews, and requires a review stage and decision notes.
+Choose **Review application** beside an applicant to open the review panel
+(on narrow screens the panel scrolls into view). Enter review notes and select
+**Start review**. After checking the private documents, enter decision notes
+and choose **Approve application** or **Reject application**. A pending
+application can also be rejected directly. Draft applications explain that the
+applicant must finish uploading and submit before a decision is available.
 Only active `verification_agent`, `admin`, or `super_admin` accounts may review.
 Self review, applicant-supplied approval/ownership fields, direct client database
 writes, and approval without required verified documents are rejected. Decisions

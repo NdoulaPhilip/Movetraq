@@ -30,10 +30,9 @@ test('review, tariff configuration and logout', async ({ page }, info) => {
   const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
   await mockApi(page); await login(page);
   await expect(page.getByRole('heading', { name: 'Delivery Verification' })).toBeVisible();
-  await page.getByRole('button', { name: 'Test Applicant' }).click();
-  await page.getByRole('combobox', { name: 'Decision' }).selectOption('under_review');
+  await page.getByRole('button', { name: 'Review application for Test Applicant', exact: true }).click();
   await page.getByLabel('Review notes').fill('Documents received for review.');
-  await page.getByRole('button', { name: 'Save decision' }).click();
+  await page.getByRole('button', { name: 'Start review', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Review saved.');
   await checkLayout(page);
   await page.screenshot({ path: info.outputPath('verification.png'), fullPage: true });
