@@ -285,14 +285,16 @@ Widget? additionalScreen(String? route, Object? arguments) {
         fields: const ['recipient_name', 'captured_at']),
     '/evidence-upload' => PrivateUploadScreen(entityId: id),
     '/delivery-opportunities' => const DeliveryOpportunitiesScreen(),
-    '/application-form' =>
-      const DelivererApplicationScreen(startImmediately: true),
+    '/application-form' => DelivererApplicationScreen(
+        startImmediately: true, applicationData: values),
     '/deliverer-apply' => const DelivererApplicationScreen(),
     '/verification' ||
     '/application-status' =>
       VerificationScreen(applicationId: id),
-    '/verification-documents' =>
-      PrivateUploadScreen(entityId: id, verification: true),
+    '/verification-documents' => PrivateUploadScreen(
+        entityId: values['applicationId'] as String? ?? id,
+        verification: true,
+        documentType: values['documentType'] as String? ?? 'identity'),
     '/delivery-work' => const DeliveryWorkScreen(),
     '/analytics' => const DelivererAnalyticsScreen(),
     '/performance' => const DelivererAnalyticsScreen(performance: true),

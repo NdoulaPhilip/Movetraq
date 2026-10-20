@@ -9,6 +9,7 @@ import { MobileOperations,OperationalView } from './mobile-operations';
 import { Invitation } from './invitation';
 import { authStore, signIn, signOut } from './api';
 import { Verification } from './verification';
+import { VerificationNotifications } from './verification-notifications';
 import { Pricing } from './pricing';
 import { Support } from './support';
 import brand from '../../assets/brand/movetraq-mark.svg';
@@ -52,7 +53,7 @@ function App() {
       {support && <button className={activeView === 'support' ? 'active' : ''} onClick={() => setView('support')}><LifeBuoy size={19} />Support</button>}
       {superAdmin && <><button className={activeView==='activity'?'active':''} onClick={()=>setView('activity')}><ActivityIcon size={19}/>Platform Activity</button><button className={activeView==='users'?'active':''} onClick={()=>setView('users')}><UsersIcon size={19}/>Users</button><button className={activeView==='admins'?'active':''} onClick={()=>setView('admins')}><ShieldCheck size={19}/>Administrators</button><button className={activeView==='audit'?'active':''} onClick={()=>setView('audit')}><ShieldCheck size={19}/>Audit Logs</button></>}</nav>
     <div className="staff-account"><span>{user.name}<small>{user.email}</small></span><button className="icon-button" title="Sign out" aria-label="Sign out" onClick={() => { void queryClient.cancelQueries(); queryClient.clear(); void signOut(); }}><LogOut size={18} /></button></div>
-  </aside><main className="workspace">{activeView==='payments'?<MobileOperations key="payments" initialView="payments"/>:activeView==='orders'?(superAdmin?<OperationalView key="orders" initialView="orders"><Orders/></OperationalView>:<Orders/>):activeView==='activity'?<OperationalView key="activity"><Activity/></OperationalView>:activeView==='audit'?<Activity key="audit" audit/>:activeView==='users'?<OperationalView key="users" initialView="users"><Users user={user}/></OperationalView>:activeView==='admins'?<Users key="admins" user={user} staff/>:activeView === 'verification' ? <Verification user={user} /> : activeView === 'pricing' ? <Pricing user={user} /> : superAdmin?<OperationalView key="support" initialView="support_tickets"><Support user={user}/></OperationalView>:<Support user={user}/>}</main></div>;
+  </aside><main className="workspace">{verification && <VerificationNotifications user={user} onReview={() => setView('verification')}/>}{activeView==='payments'?<MobileOperations key="payments" initialView="payments"/>:activeView==='orders'?(superAdmin?<OperationalView key="orders" initialView="orders"><Orders/></OperationalView>:<Orders/>):activeView==='activity'?<OperationalView key="activity"><Activity/></OperationalView>:activeView==='audit'?<Activity key="audit" audit/>:activeView==='users'?<OperationalView key="users" initialView="users"><Users user={user}/></OperationalView>:activeView==='admins'?<Users key="admins" user={user} staff/>:activeView === 'verification' ? <Verification user={user} /> : activeView === 'pricing' ? <Pricing user={user} /> : superAdmin?<OperationalView key="support" initialView="support_tickets"><Support user={user}/></OperationalView>:<Support user={user}/>}</main></div>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

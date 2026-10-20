@@ -59,3 +59,59 @@ The legacy PostgreSQL pool defaults to four connections (`PG_POOL_MAX`), with
 idle cleanup and graceful shutdown. A ten-connection pool per instance exceeded
 the hosted session pool's fifteen-client budget during rolling deployment.
 Keep the combined old/new instance connection budget within the database limit.
+
+## Application workflow repair - October 2026
+
+The application form saves a resumable draft (`not_started`). A draft does not
+notify reviewers or unlock delivery work. The status screen lists the required
+identity/vehicle documents for the selected transport, marks server-confirmed
+uploads, and enables **Submit for review** only after every required document is
+confirmed. Returning from an upload refreshes the checklist immediately.
+
+Final submission stores `pending_approval` and `submitted_at` in Supabase.
+Flutter displays **Pending Approval** for this state and for an application
+under review. Existing `submitted` records are migrated to `pending_approval`.
+The database inserts an inbox notification for each active authorized reviewer
+in the same transaction. Admin alerts and the pending queue refresh every five
+seconds; this change does not configure email, SMS, or browser push delivery.
+
+The admin queue filters pending applications before pagination, shows verified
+private document previews, and requires a review stage and decision notes.
+Only active `verification_agent`, `admin`, or `super_admin` accounts may review.
+Self review, applicant-supplied approval/ownership fields, direct client database
+writes, and approval without required verified documents are rejected. Decisions
+remain audited. Native Supabase applicants receive roles only after approval;
+legacy mobile identities use the same approved application as their authority.
+
+Approval, rejection and suspension create durable applicant notifications.
+The legacy API imports these using stable IDs and acknowledges reads against
+the owner's Supabase inbox. Flutter refreshes approval and notification state
+at the existing twenty-second interval. Rejected applicants can correct their
+information and re-verify documents; suspended accounts cannot restart the
+application to bypass an administrator. Every delivery mutation still checks
+current approval independently of the Flutter UI.
+
+### Rollout order
+
+1. Apply `0017_pending_approval_status.sql` and commit it **before** applying
+   `0018_deliverer_application_workflow.sql`. PostgreSQL must commit the new enum
+   value before the next transaction can use it. Apply only these new migrations
+   to an existing project that already has migrations 0001 through 0016.
+2. Use a connected Supabase integration/SQL Editor, or set `SUPABASE_DB_URL` in
+   ignored `backend/.env` and run `node tools/apply-deliverer-workflow.mjs --apply`.
+   The helper verifies the project identity, keeps TLS certificate validation,
+   serializes schema changes, and does not print credentials. It does not use or
+   modify the separate mobile Render database.
+3. Check `node tools/apply-deliverer-workflow.mjs --check-hosted`. It calls only
+   a read-only notification RPC for a deployment probe identity; it creates no
+   test account, application, document, notification, or approval in production.
+4. After the schema check passes, build/test and deploy the backend, mobile API,
+   and admin, then install a newly built Android APK. The Render release helper
+   refuses to deploy the workflow if the hosted RPC is missing. A normal GitHub
+   push may auto-deploy services, so keep schema-dependent commits local or use
+   `[skip render]` until the migration is applied.
+
+The repository contains isolated PostgreSQL, HTTP, Flutter widget, upload
+contract, and admin browser tests. These validate permissions and transitions
+without inserting production fixtures. A real applicant must supply their own
+legitimate documents for the final device acceptance check.

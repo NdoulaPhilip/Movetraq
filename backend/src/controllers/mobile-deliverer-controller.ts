@@ -8,7 +8,7 @@ import { ApiError } from '../utils/api-error.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { ok } from '../utils/responses.js';
 import { applicationSchema,documentSchema } from '../validators/delivery.js';
-const envelope=z.object({userId:z.string().regex(/^user_[A-Za-z0-9_-]{1,120}$/),command:z.enum(['status','start','reserve','confirm','submit']),input:z.record(z.string(),z.unknown()).default({})}).strict();
+const envelope=z.object({userId:z.string().regex(/^user_[A-Za-z0-9_-]{1,120}$/),command:z.enum(['status','start','reserve','confirm','submit','read_notification']),input:z.record(z.string(),z.unknown()).default({})}).strict();
 export const mobileDeliverer=asyncHandler(async(req,res)=>{
   const supplied=Buffer.from(req.header('authorization')??'');const expected=Buffer.from(`Bearer ${env.MONITORING_SERVICE_TOKEN??''}`);
   if(!env.MONITORING_SERVICE_TOKEN||supplied.length!==expected.length||!timingSafeEqual(supplied,expected))throw new ApiError(401,'SERVICE_AUTH_REQUIRED','Service authentication required.');
@@ -35,6 +35,7 @@ export const mobileDeliverer=asyncHandler(async(req,res)=>{
     args={documentId:id,path:document.storage_path,size:uploaded.data.size};
   }
   if(command==='submit')args={applicationId:z.string().uuid().parse(input.applicationId)};
+  if(command==='read_notification')args=z.object({notificationId:z.string().uuid()}).strict().parse(input);
   if(command==='status')args={};
   const result=await deliveryRpc('mobile_deliverer_command',{p_user:userId,p_command:command,p_input:args});
   ok(res,{...result,...(command==='status'?{storageOrigin:env.SUPABASE_URL}:{})});

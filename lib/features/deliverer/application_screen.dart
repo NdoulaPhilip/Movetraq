@@ -11,8 +11,12 @@ import '../../providers/auth_provider.dart';
 import '../../models/app_user.dart';
 
 class DelivererApplicationScreen extends StatefulWidget {
-  const DelivererApplicationScreen({super.key, this.startImmediately = false});
+  const DelivererApplicationScreen(
+      {super.key,
+      this.startImmediately = false,
+      this.applicationData = const {}});
   final bool startImmediately;
+  final Map<String, dynamic> applicationData;
   @override
   State<DelivererApplicationScreen> createState() =>
       _DelivererApplicationScreenState();
@@ -30,6 +34,13 @@ class _DelivererApplicationScreenState
   void initState() {
     super.initState();
     _started = widget.startImmediately;
+    final identity = widget.applicationData['identity'] as Map?;
+    _name.text = identity?['fullName']?.toString() ??
+        context.read<AuthProvider>().profile?.name ??
+        '';
+    _birth = DateTime.tryParse(identity?['dateOfBirth']?.toString() ?? '');
+    final transport = widget.applicationData['transportType']?.toString();
+    if (_transports.containsKey(transport)) _transport = transport;
   }
 
   bool _lawful = false;
@@ -104,7 +115,8 @@ class _DelivererApplicationScreenState
             },
           });
       if (mounted) {
-        Navigator.pushNamed(context, '/verification', arguments: result['id']);
+        Navigator.pushReplacementNamed(context, '/verification',
+            arguments: result['id']);
       }
     } catch (error) {
       if (mounted) setState(() => _error = error);
@@ -323,6 +335,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
   bool _busy = false;
   String _id = '';
   Timer? _statusTimer;
+  static const _documentLabels = {
+    'identity': 'Identity document',
+    'driver_licence': "Driver's licence",
+    'registration': 'Vehicle registration',
+    'insurance': 'Insurance'
+  };
+  Future<void> _uploadDocument(String type) async {
+    await Navigator.pushNamed(context, '/verification-documents',
+        arguments: {'applicationId': _id, 'documentType': type});
+    if (mounted) setState(_load);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -361,6 +385,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
         }
         final status = snapshot.data!['status']?.toString() ?? 'not_started';
         final editable = status == 'not_started' && _id.isNotEmpty;
+        final required = (snapshot.data!['requiredDocuments'] as List? ?? [])
+            .whereType<String>()
+            .toList();
+        final documents =
+            (snapshot.data!['documents'] as List? ?? []).whereType<Map>();
+        final uploaded = documents
+            .where((document) => document['upload_verified_at'] != null)
+            .map((document) => document['document_type'])
+            .toSet();
+        final missing =
+            required.where((type) => !uploaded.contains(type)).toList();
+        final ready = editable && required.isNotEmpty && missing.isEmpty;
         final profile = context.watch<AuthProvider>().profile;
         return AppPage(title: 'Application status', children: [
           DesignCard(
@@ -377,8 +413,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 Text(
                     switch (status) {
                       'not_started' => 'Complete your application',
-                      'approved' => 'Application approved',
-                      'rejected' => 'Application needs attention',
+                      'pending_approval' ||
+                      'submitted' ||
+                      'under_review' =>
+                        'Pending Approval',
+                      'approved' => 'Approved',
+                      'rejected' => 'Rejected',
                       _ => status.replaceAll('_', ' '),
                     },
                     style: const TextStyle(
@@ -390,9 +430,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 const SizedBox(height: 16),
                 Text(
                     snapshot.data!['review_notes']?.toString() ??
-                        (status == 'approved'
-                            ? 'Your delivery application has been approved.'
-                            : 'Complete screening and await approval to continue to your deliverer dashboard.'),
+                        (switch (status) {
+                          'approved' =>
+                            'Your delivery application has been approved. Open your delivery workspace to get started.',
+                          'pending_approval' ||
+                          'submitted' =>
+                            'Your application and documents were submitted. An administrator will review them before enabling delivery work.',
+                          'under_review' =>
+                            'An administrator is reviewing your identity and documents. Delivery work stays locked until approval.',
+                          'rejected' =>
+                            'Review the administrator notes, correct your application and upload the required documents again.',
+                          _ =>
+                            'Complete your details and upload every required document, then submit your application for approval.',
+                        }),
                     style: const TextStyle(
                         color: Color(0xFF7C8696), height: 1.65)),
               ])),
@@ -417,16 +467,46 @@ class _VerificationScreenState extends State<VerificationScreen> {
             const SizedBox(height: 16),
           ],
           if (status == 'not_started' || status == 'rejected')
-            const RouteTile(
-                title: 'Identity information',
-                icon: Icons.person_outline,
-                route: '/deliverer-apply'),
-          if (editable)
             RouteTile(
-                title: 'Verification documents',
-                icon: Icons.description_outlined,
-                route: '/verification-documents',
-                arguments: _id),
+                title: _id.isEmpty
+                    ? 'Identity information'
+                    : 'Edit application details',
+                icon: Icons.person_outline,
+                route: '/application-form',
+                arguments: snapshot.data),
+          if (editable) ...[
+            const SizedBox(height: 12),
+            DesignCard(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  const Text('Required documents',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  if (required.isEmpty)
+                    const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text(
+                            'Verification requirements could not be loaded. Refresh your status before submitting.')),
+                  for (final type in required)
+                    RouteTile(
+                        title: _documentLabels[type] ?? type,
+                        subtitle: uploaded.contains(type)
+                            ? 'Upload verified'
+                            : 'Upload required',
+                        icon: uploaded.contains(type)
+                            ? Icons.check_circle_outline
+                            : Icons.description_outlined,
+                        onTap: _busy ? null : () => _uploadDocument(type)),
+                ])),
+            const SizedBox(height: 12),
+            if (missing.isNotEmpty)
+              PrimaryButton(
+                  label: 'Upload required documents',
+                  onPressed:
+                      _busy ? null : () => _uploadDocument(missing.first)),
+            const SizedBox(height: 12),
+          ],
           const RouteTile(
               title: 'Safety information',
               icon: Icons.shield_outlined,
@@ -438,24 +518,28 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     ? 'Start application'
                     : 'Submit for review',
                 loading: _busy,
-                onPressed: () async {
-                  if (_id.isEmpty || status == 'rejected') {
-                    await Navigator.pushNamed(context, '/deliverer-apply');
-                    if (mounted) setState(_load);
-                    return;
-                  }
-                  setState(() => _busy = true);
-                  try {
-                    await FeatureGateway(context.read<LocalDataService>())
-                        .request('Verification', 'POST',
-                            '/deliverers/me/applications/$_id/submit');
-                    if (mounted) setState(_load);
-                  } catch (error) {
-                    if (context.mounted) showActionError(context, error);
-                  } finally {
-                    if (mounted) setState(() => _busy = false);
-                  }
-                }),
+                onPressed: _busy || (editable && !ready)
+                    ? null
+                    : () async {
+                        if (_id.isEmpty || status == 'rejected') {
+                          await Navigator.pushNamed(
+                              context, '/application-form',
+                              arguments: snapshot.data);
+                          if (mounted) setState(_load);
+                          return;
+                        }
+                        setState(() => _busy = true);
+                        try {
+                          await FeatureGateway(context.read<LocalDataService>())
+                              .request('Verification', 'POST',
+                                  '/deliverers/me/applications/$_id/submit');
+                          if (mounted) setState(_load);
+                        } catch (error) {
+                          if (context.mounted) showActionError(context, error);
+                        } finally {
+                          if (mounted) setState(() => _busy = false);
+                        }
+                      }),
           if (status == 'approved')
             PrimaryButton(
                 label: 'Open delivery workspace',
@@ -466,6 +550,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       : await auth.toggleRole();
                   if (context.mounted && success) {
                     Navigator.pushNamed(context, '/deliverer-home');
+                  } else if (context.mounted) {
+                    showActionError(
+                        context,
+                        auth.errorMessage ??
+                            'Delivery access could not be refreshed. Please retry.');
                   }
                 }),
           TextButton(

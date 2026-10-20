@@ -25,4 +25,16 @@ class DelivererAccess {
     return user;
   }
 }
-module.exports={DelivererAccess};
+// Supabase notification IDs are stable so polling cannot duplicate decisions or reset read state.
+function mergeVerificationNotifications(current, state) {
+  const merged=current.map(item=>({...item}));
+  for(const event of state.notifications||[]) {
+    if(!/^[0-9a-f-]{36}$/i.test(event.id)||event.type!=='verification_update')continue;
+    const id=`verification:${event.id}`;
+    const previous=merged.find(item=>item.id===id);
+    if(previous){previous.read=previous.read||!!event.read_at;continue;}
+    merged.push({id,title:event.title,body:event.body,type:event.type,read:!!event.read_at,createdAt:event.created_at});
+  }
+  return merged;
+}
+module.exports={DelivererAccess,mergeVerificationNotifications};

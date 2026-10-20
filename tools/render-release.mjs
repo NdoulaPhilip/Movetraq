@@ -50,6 +50,15 @@ if (mode === 'deploy') {
   if (git('status', '--porcelain')) throw new Error('Commit the reviewed source before deploying.');
   commit = git('rev-parse', 'HEAD');
   if (git('ls-remote', 'origin', 'refs/heads/main').split(/\s/)[0] !== commit) throw new Error('Publish this exact commit to origin/main first.');
+  // Schema-dependent services must never be rolled out before their additive migration.
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Supabase schema verification is required before deployment.');
+  const schema = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/mobile_verification_notifications`, {
+    method:'POST',redirect:'error',signal:AbortSignal.timeout(30000),
+    headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:`Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,'Content-Type':'application/json'},
+    body:JSON.stringify({p_user:'user_deployment_probe'}),
+  });
+  await schema.body?.cancel();
+  if (!schema.ok) throw new Error('Apply Supabase migrations 0017 and 0018 before deploying the approval workflow. No deployment triggered.');
 }
 for (const service of services) {
   const history = await api(`/services/${service.id}/deploys?limit=3`);

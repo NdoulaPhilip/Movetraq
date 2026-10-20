@@ -27,6 +27,38 @@ class LocalDataService {
       throw StateError('Delivery approval account mismatch.');
     }
     _storeUser(user, makeCurrent: true);
+    final events = result['notifications'];
+    if (events is List) {
+      final inbox = List<NotificationItem>.of(_notifs[owner] ?? []);
+      var changed = false;
+      for (final event in events.whereType<Map>()) {
+        if (event['id'] is! String || event['type'] != 'verification_update') {
+          continue;
+        }
+        final id = 'verification:${event['id']}';
+        final index = inbox.indexWhere((item) => item.id == id);
+        if (index < 0) {
+          final createdAt =
+              DateTime.tryParse(event['created_at']?.toString() ?? '');
+          if (createdAt == null) continue;
+          inbox.add(NotificationItem(
+              id: id,
+              title: event['title']?.toString() ?? 'Application update',
+              body: event['body']?.toString() ?? '',
+              type: 'verification_update',
+              read: event['read_at'] != null,
+              createdAt: createdAt));
+          changed = true;
+        } else if (!inbox[index].read && event['read_at'] != null) {
+          inbox[index] = inbox[index].copyWith(read: true);
+          changed = true;
+        }
+      }
+      if (changed) {
+        _notifs[owner] = inbox;
+        _notifsController.add(Map<String, List<NotificationItem>>.of(_notifs));
+      }
+    }
     return result;
   }
 

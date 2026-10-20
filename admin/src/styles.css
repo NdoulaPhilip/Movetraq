@@ -128,3 +128,7 @@ dt { color: #768177; } dd { margin: 0; text-transform: capitalize; overflow-wrap
   .review-panel { padding: 18px; } td, th { padding: 12px 9px; }
   .login-page { padding-top: 45px; } .login-form { padding: 24px; }
 }
+.verification-notice { display:flex; flex-wrap:wrap; align-items:center; gap:16px; padding:18px; border:1px solid #dce3cb; background:#f1f6e2; border-radius:14px; margin-bottom:24px; }
+.verification-notice > div { flex:1; min-width:160px; }
+.verification-notice p { font-size:13px; margin:6px 0 0; }
+.status-pending_approval { background:#fff2d7; color:#845a10; }

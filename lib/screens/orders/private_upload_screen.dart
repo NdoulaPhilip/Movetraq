@@ -11,9 +11,13 @@ import '../../core/networking/uploads.dart';
 
 class PrivateUploadScreen extends StatefulWidget {
   const PrivateUploadScreen(
-      {super.key, required this.entityId, this.verification = false});
+      {super.key,
+      required this.entityId,
+      this.verification = false,
+      this.documentType = 'identity'});
   final String entityId;
   final bool verification;
+  final String documentType;
   @override
   State<PrivateUploadScreen> createState() => _PrivateUploadScreenState();
 }
@@ -24,6 +28,12 @@ class _PrivateUploadScreenState extends State<PrivateUploadScreen> {
   String _type = 'identity';
   bool _busy = false;
   String? _confirmedId;
+  @override
+  void initState() {
+    super.initState();
+    _type = widget.documentType;
+  }
+
   Future<void> _pick(ImageSource source) async {
     try {
       final image = await ImagePicker()

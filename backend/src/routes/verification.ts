@@ -3,6 +3,7 @@ import { requireAuth, requireAdminRole } from '../middleware/auth.js';
 import * as controller from '../controllers/verification-controller.js';
 
 export const verificationRouter = Router();
+verificationRouter.get('/admin/verification-notifications', requireAuth, requireAdminRole('verification_agent','admin','super_admin'),controller.notifications);
 verificationRouter.post('/deliverers/me/applications', requireAuth, controller.start);
 verificationRouter.get('/deliverers/me/applications/:id', requireAuth, controller.application);
 verificationRouter.post('/deliverers/me/applications/:id/documents', requireAuth, controller.upload);

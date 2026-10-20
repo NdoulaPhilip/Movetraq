@@ -6,6 +6,8 @@ import { asyncHandler } from '../utils/async-handler.js';
 import { ok, created } from '../utils/responses.js';
 import { idSchema, paginationSchema } from '../validators/account.js';
 import { applicationSchema, documentSchema, reviewSchema } from '../validators/delivery.js';
+import { z } from 'zod';
+const queueSchema=paginationSchema.extend({status:z.enum(['pending','all']).default('pending')});
 
 export const start = asyncHandler(async (req, res) => { created(res, await deliveryRpc('start_deliverer_application', { p_user_id: req.user!.id, p_input: applicationSchema.parse(req.body) })); });
 export const application = asyncHandler(async (req, res) => { ok(res, await service.ownedApplication(req.user!.id, idSchema.parse(req.params.id))); });
@@ -21,8 +23,16 @@ export const review = asyncHandler(async (req, res) => {
   ok(res, await deliveryRpc('review_deliverer_application', { p_admin_id: req.user!.id, p_application_id: idSchema.parse(req.params.id), p_status: input.status, p_notes: input.notes }));
 });
 export const queue = asyncHandler(async (req, res) => {
-  const { limit, offset } = paginationSchema.parse(req.query);
-  const { data, error } = await supabaseAdmin.from('verification_applications').select('*,documents:verification_documents(id,document_type,mime_type,size_bytes,upload_verified_at)')
-    .order('created_at').order('id').range(offset, offset + limit - 1);
+  const { limit, offset, status } = queueSchema.parse(req.query);
+  let query = supabaseAdmin.from('verification_applications').select('*,documents:verification_documents(id,document_type,mime_type,size_bytes,upload_verified_at)');
+  if(status==='pending')query=query.in('status',['pending_approval','submitted','under_review']);
+  const { data, error } = await query.order('submitted_at',{ascending:false,nullsFirst:false}).order('id').range(offset, offset + limit - 1);
   databaseError(error); ok(res, { applications: data ?? [], limit, offset });
+});
+export const notifications = asyncHandler(async(req,res)=>{
+  const {limit,offset}=paginationSchema.parse(req.query);
+  const {data,error,count}=await supabaseAdmin.from('notifications').select('id,type,title,body,data,created_at,read_at',{count:'exact'})
+    .eq('user_id',req.user!.id).eq('type','deliverer_application').is('read_at',null)
+    .order('created_at',{ascending:false}).order('id').range(offset,offset+limit-1);
+  databaseError(error);ok(res,{notifications:data??[],unreadCount:count??data?.length??0});
 });

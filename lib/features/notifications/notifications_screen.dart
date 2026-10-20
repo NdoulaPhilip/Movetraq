@@ -87,6 +87,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   (IconData, Color, Color) _appearance(String type) => switch (type) {
+        'verification_update' => (
+            Icons.verified_user_outlined,
+            const Color(0xFFF0F4D9),
+            AppColors.ink
+          ),
         'arriving' => (Icons.near_me, AppColors.ink, AppColors.accent),
         'payment' || 'wallet' => (
             Icons.account_balance_wallet_outlined,
@@ -226,6 +231,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           alignment: Alignment.centerLeft),
                       onPressed: _busy ? null : () => _markRead(item),
                       child: const Text('Mark read')),
+                if (item.type == 'verification_update')
+                  TextButton(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/verification'),
+                      child: const Text('View application')),
               ])),
           IconButton(
               tooltip: 'Delete notification',

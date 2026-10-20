@@ -4,7 +4,7 @@ vi.mock('../src/config/supabase.js',()=>({supabaseAdmin:{from:()=>({select:()=>(
 import { assertApprovedDeliverer } from '../src/services/deliverer-access.js';
 beforeEach(()=>{result.status='not_started';result.error=null;});
 describe('Supabase deliverer capability checks',()=>{
-  it.each(['not_started','submitted','under_review','rejected','suspended'])('denies a granted role with %s verification',async status=>{
+  it.each(['not_started','pending_approval','submitted','under_review','rejected','suspended'])('denies a granted role with %s verification',async status=>{
     result.status=status;await expect(assertApprovedDeliverer({id:'fixture',roles:['sender','deliverer']})).rejects.toMatchObject({status:403});
   });
   it('requires both the role and current approval',async()=>{

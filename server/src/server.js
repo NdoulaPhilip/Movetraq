@@ -5,7 +5,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const { WalletPayments, PaymentError, minorUnits, validSignature, validReference } = require('./payments');
 const monitoring = require('./monitoring');
-const { DelivererAccess } = require('./deliverer-access');
+const { DelivererAccess,mergeVerificationNotifications } = require('./deliverer-access');
 const { MobileMaps } = require('./mobile-maps');
 
 function loadEnvFile() {
@@ -705,7 +705,10 @@ async function handleRequest(req, res) {
     if (!user) return;
     if(req.method==='GET'&&path==='/deliverer-access'){
       const state=await delivererAccess.command(user,'status');const previous=JSON.stringify(user);await delivererAccess.profile(user,state);
-      if(JSON.stringify(user)!==previous)await saveStore();
+      const inbox=notifications.get(user.uid)||[];
+      const merged=mergeVerificationNotifications(inbox,state);
+      notifications.set(user.uid,merged);
+      if(JSON.stringify(user)!==previous||JSON.stringify(inbox)!==JSON.stringify(merged))await saveStore();
       json(res,200,{...state,user});return;
     }
     const applicationRoute=path.match(/^\/api\/v1\/deliverers\/me\/applications(?:\/([0-9a-f-]{36})(?:\/(documents|submit))?)?$/i);
@@ -1382,6 +1385,12 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === 'GET' && path === '/notifications') {
+      if(user.delivererApplicationId){
+        const state=await delivererAccess.command(user,'status');
+        const inbox=notifications.get(user.uid)||[];
+        const merged=mergeVerificationNotifications(inbox,state);
+        if(JSON.stringify(inbox)!==JSON.stringify(merged)){notifications.set(user.uid,merged);await saveStore();}
+      }
       json(res, 200, { notifications: notifications.get(user.uid) || [] });
       return;
     }
@@ -1406,6 +1415,7 @@ async function handleRequest(req, res) {
     if (req.method === 'POST' && notificationMatch) {
       const list = notifications.get(user.uid) || [];
       const notification = list.find((item) => item.id === notificationMatch[1]);
+      if(notification?.id.startsWith('verification:'))await delivererAccess.command(user,'read_notification',{notificationId:notification.id.slice('verification:'.length)});
       if (notification) notification.read = true;
       await saveStore();
       json(res, 200, { notifications: list });

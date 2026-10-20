@@ -73,6 +73,49 @@ beforeEach(() => {
 });
 
 describe('account API security and persistence contract', () => {
+  it('requires authorized review staff and binds the decision to the authenticated admin',async()=>{
+    const path=`/admin/verification-applications/${fixtures.userId}/review`;
+    const decision={status:'under_review',notes:'Reviewing the uploaded identity document'};
+    expect((await request(path,'POST',decision,null)).status).toBe(401);
+    for(const role of ['sender','deliverer','finance','support','operations']){
+      fixtures.results.user_roles={data:[{role}],error:null};
+      expect((await request(path,'POST',decision)).status).toBe(403);
+      expect((await request('/admin/verification-applications')).status).toBe(403);
+      expect((await request('/admin/verification-notifications')).status).toBe(403);
+    }
+    expect(fixtures.rpc).not.toHaveBeenCalled();
+    fixtures.results.user_roles={data:[{role:'verification_agent'}],error:null};
+    expect((await request(path,'POST',{...decision,adminId:'forged-admin'})).status).toBe(400);
+    expect((await request(path,'POST',decision)).status).toBe(200);
+    expect(fixtures.rpc).toHaveBeenCalledWith('review_deliverer_application',{p_admin_id:fixtures.userId,p_application_id:fixtures.userId,p_status:'under_review',p_notes:decision.notes});
+  });
+  it('filters the review queue before pagination so drafts cannot hide pending applications',async()=>{
+    fixtures.results.user_roles={data:[{role:'admin'}],error:null};
+    fixtures.results.verification_applications={data:[],error:null};
+    expect((await request('/admin/verification-applications?limit=10&offset=20&status=pending')).status).toBe(200);
+    const scope=fixtures.queries.findIndex(query=>query.table==='verification_applications'&&query.method==='in');
+    const page=fixtures.queries.findIndex(query=>query.table==='verification_applications'&&query.method==='range');
+    expect(fixtures.queries[scope].args).toEqual(['status',['pending_approval','submitted','under_review']]);
+    expect(scope).toBeLessThan(page);
+    expect(fixtures.queries[page].args).toEqual([20,29]);
+    fixtures.queries.length=0;
+    expect((await request('/admin/verification-applications?status=all')).status).toBe(200);
+    expect(fixtures.queries.some(query=>query.method==='in'&&query.table==='verification_applications')).toBe(false);
+  });
+  it('rejects application status and ownership fields supplied by an applicant',async()=>{
+    const application={identity:{fullName:'Applicant',dateOfBirth:'1990-01-01'},transportType:'walking',safety:{lawfulTransport:true,safeHandling:true,termsAccepted:true}};
+    for(const forbidden of [{status:'approved'},{userId:fixtures.userId},{canDeliver:true},{reviewedBy:fixtures.userId}]){
+      expect((await request('/deliverers/me/applications','POST',{...application,...forbidden})).status).toBe(400);
+    }
+    expect(fixtures.rpc).not.toHaveBeenCalled();
+  });
+  it('scopes admin application alerts by owner and unread type before pagination',async()=>{
+    fixtures.results.user_roles={data:[{role:'admin'}],error:null};
+    expect((await request('/admin/verification-notifications?limit=10')).status).toBe(200);
+    expect(fixtures.queries).toContainEqual({table:'notifications',method:'eq',args:['user_id',fixtures.userId]});
+    expect(fixtures.queries).toContainEqual({table:'notifications',method:'eq',args:['type','deliverer_application']});
+    expect(fixtures.queries).toContainEqual({table:'notifications',method:'is',args:['read_at',null]});
+  });
   it('protects address lookup and rejects invalid provider requests before external calls', async () => {
     expect((await request('/addresses/search?query=Ikeja', 'GET', undefined, null)).status).toBe(401);
     expect((await request('/addresses/search?query=x')).status).toBe(400);

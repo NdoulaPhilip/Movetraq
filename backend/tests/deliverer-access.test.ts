@@ -1,10 +1,19 @@
 import { createRequire } from 'node:module';
 import { describe,it,expect,vi } from 'vitest';
-const {DelivererAccess}=createRequire(import.meta.url)('../../server/src/deliverer-access.js');
+const {DelivererAccess,mergeVerificationNotifications}=createRequire(import.meta.url)('../../server/src/deliverer-access.js');
 const account=()=>({uid:'user_fixture',email:'sender@example.test',verified:true,activeRole:'deliverer',delivererOnline:true});
 const authority=(state:unknown)=>new DelivererAccess({origin:'https://authority.example.test',secret:'private-test-service-token',request:vi.fn(async()=>new Response(JSON.stringify({success:true,data:state}))) });
 describe('legacy deliverer approval enforcement',()=>{
-  it.each(['not_started','submitted','under_review','rejected','suspended'])('denies %s even with a local verified flag',async status=>{
+  it('imports review notifications once and preserves read state across polls',()=>{
+    const event={id:'18000000-0000-4000-8000-000000000001',type:'verification_update',title:'Application rejected',body:'Please upload a clear identity document',created_at:'2026-10-20T10:00:00Z',read_at:null};
+    const first=mergeVerificationNotifications([],{notifications:[event]});
+    expect(first).toHaveLength(1);expect(first[0].id).toBe(`verification:${event.id}`);
+    first[0].read=true;
+    const next=mergeVerificationNotifications(first,{notifications:[event]});
+    expect(next).toHaveLength(1);expect(next[0].read).toBe(true);
+    expect(mergeVerificationNotifications([],{notifications:[{...event,type:'untrusted'}]})).toEqual([]);
+  });
+  it.each(['not_started','pending_approval','submitted','under_review','rejected','suspended'])('denies %s even with a local verified flag',async status=>{
     const access=authority({status,canDeliver:false});await expect(access.requireApproved(account())).rejects.toMatchObject({status:403});
     expect(await access.profile(account())).toMatchObject({canDeliver:false,activeRole:'sender',delivererOnline:false});
   });

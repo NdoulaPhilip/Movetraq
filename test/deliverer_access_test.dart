@@ -25,6 +25,7 @@ void main() {
   });
   for (final status in [
     'not_started',
+    'pending_approval',
     'submitted',
     'under_review',
     'rejected',
