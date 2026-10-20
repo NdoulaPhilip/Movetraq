@@ -57,6 +57,7 @@ class ParcelOrder {
   final String category; // parcel type key
   final String pickupAddress;
   final String dropoffAddress;
+  final String recipientPhone;
   final LatLng? pickupLocation;
   final LatLng? dropoffLocation;
   LatLng? courierLocation; // live location, updated by deliverer
@@ -90,6 +91,7 @@ class ParcelOrder {
     required this.category,
     required this.pickupAddress,
     required this.dropoffAddress,
+    this.recipientPhone = '',
     this.pickupLocation,
     this.dropoffLocation,
     this.courierLocation,
@@ -146,14 +148,14 @@ class ParcelOrder {
       category: json['category'] as String? ?? 'parcel',
       pickupAddress: json['pickupAddress'] as String? ?? '',
       dropoffAddress: json['dropoffAddress'] as String? ?? '',
+      recipientPhone: json['recipientPhone'] as String? ?? '',
       pickupLocation: readLatLng('pickupLocation'),
       dropoffLocation: readLatLng('dropoffLocation'),
       courierLocation:
           courierLocationIsSimulated ? null : readLatLng('courierLocation'),
-      courierLocationUpdatedAt:
-          json['courierLocationUpdatedAt'] == null
-              ? null
-              : DateTime.tryParse(json['courierLocationUpdatedAt'] as String),
+      courierLocationUpdatedAt: json['courierLocationUpdatedAt'] == null
+          ? null
+          : DateTime.tryParse(json['courierLocationUpdatedAt'] as String),
       courierLocationTrail: courierLocationIsSimulated
           ? const []
           : readLatLngList('courierLocationTrail'),
@@ -192,6 +194,7 @@ class ParcelOrder {
       'category': category,
       'pickupAddress': pickupAddress,
       'dropoffAddress': dropoffAddress,
+      'recipientPhone': recipientPhone,
       'pickupLocation': pickupLocation?.toJson(),
       'dropoffLocation': dropoffLocation?.toJson(),
       'courierLocation': courierLocation?.toJson(),
@@ -242,13 +245,13 @@ class ParcelOrder {
       category: category,
       pickupAddress: pickupAddress,
       dropoffAddress: dropoffAddress,
+      recipientPhone: recipientPhone,
       pickupLocation: pickupLocation,
       dropoffLocation: dropoffLocation,
       courierLocation: courierLocation ?? this.courierLocation,
       courierLocationUpdatedAt:
           courierLocationUpdatedAt ?? this.courierLocationUpdatedAt,
-      courierLocationTrail:
-          courierLocationTrail ?? this.courierLocationTrail,
+      courierLocationTrail: courierLocationTrail ?? this.courierLocationTrail,
       courierLocationIsSimulated:
           courierLocationIsSimulated ?? this.courierLocationIsSimulated,
       price: price ?? this.price,

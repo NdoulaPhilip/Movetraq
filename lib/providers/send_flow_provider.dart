@@ -15,6 +15,7 @@ class SendFlowProvider extends ChangeNotifier {
   String title = '';
   String pickupAddress = '';
   String dropoffAddress = '';
+  String recipientPhone = '';
   LatLng? pickupLocation;
   LatLng? dropoffLocation;
   bool isP2P = true; // peer-to-peer negotiated mode vs express fixed quote
@@ -42,6 +43,7 @@ class SendFlowProvider extends ChangeNotifier {
     title = '';
     pickupAddress = '';
     dropoffAddress = '';
+    recipientPhone = '';
     pickupLocation = null;
     dropoffLocation = null;
     isP2P = true;
@@ -77,6 +79,7 @@ class SendFlowProvider extends ChangeNotifier {
     String? title,
     String? pickupAddress,
     String? dropoffAddress,
+    String? recipientPhone,
     LatLng? pickupLocation,
     LatLng? dropoffLocation,
     bool clearPickupLocation = false,
@@ -84,6 +87,7 @@ class SendFlowProvider extends ChangeNotifier {
   }) {
     if (category != null) this.category = category;
     if (title != null) this.title = title;
+    if (recipientPhone != null) this.recipientPhone = recipientPhone;
     if (pickupAddress != null) this.pickupAddress = pickupAddress;
     if (dropoffAddress != null) this.dropoffAddress = dropoffAddress;
     if (clearPickupLocation) {
@@ -210,6 +214,7 @@ class SendFlowProvider extends ChangeNotifier {
       category: category,
       pickupAddress: pickupAddress,
       dropoffAddress: dropoffAddress,
+      recipientPhone: recipientPhone.trim(),
       pickupLocation: resolvedPickupLocation,
       dropoffLocation: resolvedDropoffLocation,
       price: price,

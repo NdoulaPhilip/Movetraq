@@ -1,3 +1,4 @@
+import '../../widgets/design_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -33,17 +34,22 @@ class FeatureFormScreen extends StatefulWidget {
       required this.fields,
       required this.action,
       this.subtitle,
+      this.intro,
+      this.buttonColor,
       this.path,
       this.method = 'POST',
       this.fixedValues = const {},
       this.initialValues = const {},
       this.review = false,
+      this.reviewStartAction = 'Review details',
       this.reviewTitle = 'Review your details',
       this.reviewAction,
       this.onSubmit,
       this.dangerous = false});
   final String title;
   final String? subtitle;
+  final Widget? intro;
+  final Color? buttonColor;
   final List<FormFieldSpec> fields;
   final String action;
   final String? path;
@@ -51,6 +57,7 @@ class FeatureFormScreen extends StatefulWidget {
   final Map<String, dynamic> fixedValues;
   final Map<String, dynamic> initialValues;
   final bool review;
+  final String reviewStartAction;
   final String reviewTitle;
   final String? reviewAction;
   final bool dangerous;
@@ -180,17 +187,22 @@ class _FeatureFormScreenState extends State<FeatureFormScreen> {
             SecondaryButton(
                 label: 'Back', onPressed: () => Navigator.maybePop(context)),
           ] else ...[
+            if (!_reviewing && widget.intro != null) widget.intro!,
             if (_reviewing) ...[
-              for (final field in widget.fields)
-                if (_values().containsKey(field.key))
-                  DetailRow(
-                      field.label,
-                      field.kind == FieldKind.password ||
-                              field.kind == FieldKind.code
-                          ? 'Hidden'
-                          : field.kind == FieldKind.money
-                              ? 'NGN ${_controllers[field.key]!.text}'
-                              : _values()[field.key].toString()),
+              DesignCard(
+                  child: Column(children: [
+                for (final field in widget.fields)
+                  if (_values().containsKey(field.key))
+                    DetailRow(
+                        field.label,
+                        field.kind == FieldKind.password ||
+                                field.kind == FieldKind.code
+                            ? 'Hidden'
+                            : field.kind == FieldKind.money
+                                ? 'NGN ${_controllers[field.key]!.text}'
+                                : _values()[field.key].toString()),
+              ])),
+              const SizedBox(height: 14),
               TextButton.icon(
                   onPressed:
                       _busy ? null : () => setState(() => _reviewing = false),
@@ -263,12 +275,13 @@ class _FeatureFormScreenState extends State<FeatureFormScreen> {
             if (_error != null) LoadError(error: _error!),
             PrimaryButton(
                 label: widget.review && !_reviewing
-                    ? 'Review details'
+                    ? widget.reviewStartAction
                     : _reviewing
                         ? widget.reviewAction ?? widget.action
                         : widget.action,
                 loading: _busy,
-                background: widget.dangerous ? AppColors.danger : AppColors.ink,
+                background: widget.buttonColor ??
+                    (widget.dangerous ? AppColors.danger : AppColors.ink),
                 onPressed: _submit),
           ],
         ],

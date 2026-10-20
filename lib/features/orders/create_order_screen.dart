@@ -6,6 +6,8 @@ import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/design_ui.dart';
+import '../../providers/send_flow_provider.dart';
 
 class BookingScreen extends StatefulWidget {
   const BookingScreen({super.key, required this.service, this.initialSchedule});
@@ -31,6 +33,7 @@ class _BookingScreenState extends State<BookingScreen> {
   Object? _error;
   Map<String, dynamic>? _quote;
 
+  bool get _p2p => widget.service == 'p2p';
   bool get _move => widget.service == 'big_move';
   bool get _errand => widget.service == 'errand';
   String get _title => _move
@@ -55,6 +58,9 @@ class _BookingScreenState extends State<BookingScreen> {
     ]) {
       _fields[key] = TextEditingController();
     }
+    final flow = context.read<SendFlowProvider>();
+    _fields['pickup']!.text = flow.pickupAddress;
+    _fields['destination']!.text = flow.dropoffAddress;
     _when = widget.initialSchedule;
     _scheduled = _move || _when != null;
   }
@@ -147,14 +153,14 @@ class _BookingScreenState extends State<BookingScreen> {
     if (_busy) return;
     if (_step < 3) {
       if (!_form.currentState!.validate()) return;
-      if (_step == 2 &&
+      if ((_step == 2 || _p2p) &&
           _scheduled &&
           (_when == null || !_when!.isAfter(DateTime.now()))) {
         setState(() => _error = StateError('Choose a future pickup time.'));
         return;
       }
       setState(() {
-        _step++;
+        _step = _p2p ? 3 : _step + 1;
         _error = null;
       });
       return;
@@ -226,6 +232,11 @@ class _BookingScreenState extends State<BookingScreen> {
 
   @override
   Widget build(BuildContext context) => AppPage(
+        subtitle: _p2p
+            ? (_step == 3
+                ? 'Check the parcel, address, schedule and offer before continuing.'
+                : 'Describe your parcel, choose your route and propose a delivery price.')
+            : null,
         title: _step == 3
             ? _move
                 ? 'Review your big move'
@@ -243,42 +254,68 @@ class _BookingScreenState extends State<BookingScreen> {
               icon: _move
                   ? Icons.local_shipping_outlined
                   : Icons.shopping_bag_outlined),
-          Row(
-              children: List.generate(
-                  4,
-                  (index) => Expanded(
-                          child: Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                  height: 3,
-                                  color: index <= _step
-                                      ? AppColors.accent
-                                      : AppColors.borderSoft),
-                              const SizedBox(height: 7),
-                              Text(
-                                  [
-                                    'Details',
-                                    'Route',
-                                    'Schedule',
-                                    'Review'
-                                  ][index],
-                                  style: TextStyle(
-                                      fontSize: 10,
-                                      color: index == _step
-                                          ? AppColors.ink
-                                          : AppColors.muted)),
-                            ]),
-                      )))),
+          if (!_p2p)
+            Row(
+                children: List.generate(
+                    4,
+                    (index) => Expanded(
+                            child: Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                    height: 3,
+                                    color: index <= _step
+                                        ? AppColors.accent
+                                        : AppColors.borderSoft),
+                                const SizedBox(height: 7),
+                                Text(
+                                    [
+                                      'Details',
+                                      'Route',
+                                      'Schedule',
+                                      'Review'
+                                    ][index],
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: index == _step
+                                            ? AppColors.ink
+                                            : AppColors.muted)),
+                              ]),
+                        )))),
           const SizedBox(height: 20),
           Form(
               key: _form,
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_step == 0) ...[
+                    if (_p2p && _step == 0) ...[
+                      _field('pickup', 'Pickup address'),
+                      _field('destination', 'Drop-off address'),
+                      _field('items', 'Parcel'),
+                      _field('name', 'Recipient name'),
+                      _field('phone', 'Contact phone', optional: false),
+                      _field('offer', 'Your offer (NGN)', money: true),
+                      _field('weight', 'Estimated weight (kg)', number: true),
+                      SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Schedule pickup'),
+                          value: _scheduled,
+                          onChanged: (value) =>
+                              setState(() => _scheduled = value)),
+                      if (_scheduled)
+                        ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(_when == null
+                                ? 'Pickup time'
+                                : _when.toString()),
+                            trailing: const Icon(Icons.schedule),
+                            onTap: _pickSchedule),
+                      _field('instructions', 'Handling notes',
+                          multiline: true, optional: true),
+                    ],
+                    if (!_p2p && _step == 0) ...[
                       SectionTitle(_move
                           ? 'Tell us about your load'
                           : _errand
@@ -368,22 +405,45 @@ class _BookingScreenState extends State<BookingScreen> {
                             icon: Icons.schedule),
                     ],
                     if (_step == 3) ...[
-                      DetailRow('Service', widget.service.replaceAll('_', ' ')),
-                      DetailRow('Parcel', _fields['items']!.text),
-                      DetailRow('Pickup', _fields['pickup']!.text),
-                      DetailRow('Destination', _fields['destination']!.text),
-                      DetailRow('Recipient', _fields['name']!.text),
-                      DetailRow('Phone', _fields['phone']!.text),
-                      DetailRow('Collection',
-                          _scheduled ? _when.toString() : 'Soonest available'),
-                      if (_errand && _task == 'shopping')
-                        DetailRow('Shopping spending limit',
-                            'NGN ${_fields['budget']!.text}'),
-                      if (_move) ...[
-                        DetailRow('Vehicle', _vehicle),
-                        DetailRow('Helpers', '$_helpers'),
-                        DetailRow('Access', '$_pickupAccess / $_dropoffAccess')
-                      ],
+                      DesignCard(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            const DesignSection('REQUEST DETAILS'),
+                            DetailRow(
+                                'Service', widget.service.replaceAll('_', ' ')),
+                            DetailRow('Parcel', _fields['items']!.text),
+                            DetailRow('Pickup', _fields['pickup']!.text),
+                            DetailRow(
+                                'Destination', _fields['destination']!.text),
+                            DetailRow('Recipient', _fields['name']!.text),
+                            DetailRow('Phone', _fields['phone']!.text),
+                            DetailRow(
+                                'Collection',
+                                _scheduled
+                                    ? _when.toString()
+                                    : 'Soonest available'),
+                            if (_errand && _task == 'shopping')
+                              DetailRow('Shopping spending limit',
+                                  'NGN ${_fields['budget']!.text}'),
+                            if (_move) ...[
+                              DetailRow('Vehicle', _vehicle),
+                              DetailRow('Helpers', '$_helpers'),
+                              DetailRow(
+                                  'Access', '$_pickupAccess / $_dropoffAccess')
+                            ],
+                            if (_p2p)
+                              DetailRow(
+                                  'Your proposed offer',
+                                  naira((parseMinorUnits(
+                                              _fields['offer']!.text) ??
+                                          0) /
+                                      100)),
+                            if (_p2p &&
+                                _fields['instructions']!.text.trim().isNotEmpty)
+                              DetailRow('Handling notes',
+                                  _fields['instructions']!.text.trim()),
+                          ])),
                       const SizedBox(height: 18),
                       if (_quote == null)
                         const InfoBand(
@@ -406,7 +466,11 @@ class _BookingScreenState extends State<BookingScreen> {
           if (_error != null) LoadError(error: _error!),
           const SizedBox(height: 18),
           PrimaryButton(
-              label: _step == 3 ? 'Get delivery quote' : 'Continue',
+              label: _step == 3
+                  ? 'Get delivery quote'
+                  : _p2p
+                      ? 'Review request'
+                      : 'Continue',
               loading: _busy,
               onPressed: _next),
           if (_step > 0)
@@ -414,11 +478,11 @@ class _BookingScreenState extends State<BookingScreen> {
                 onPressed: _busy
                     ? null
                     : () => setState(() {
-                          _step--;
+                          _step = _p2p ? 0 : _step - 1;
                           _quote = null;
                         }),
                 icon: const Icon(Icons.chevron_left),
-                label: const Text('Back')),
+                label: Text(_p2p ? 'Edit request' : 'Back')),
         ],
       );
 }
@@ -430,52 +494,102 @@ class ScheduleScreen extends StatefulWidget {
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
+  late final TextEditingController _pickup, _dropoff;
+  @override
+  void initState() {
+    super.initState();
+    final flow = context.read<SendFlowProvider>();
+    _pickup = TextEditingController(text: flow.pickupAddress);
+    _dropoff = TextEditingController(text: flow.dropoffAddress);
+  }
+
+  @override
+  void dispose() {
+    _pickup.dispose();
+    _dropoff.dispose();
+    super.dispose();
+  }
+
   DateTime? _date;
   TimeOfDay? _time;
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Schedule a delivery', children: [
-        ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.calendar_month_outlined),
-            title: Text(_date == null
-                ? 'Pickup date'
-                : '${_date!.day}/${_date!.month}/${_date!.year}'),
-            onTap: () async {
-              final now = DateTime.now();
-              final value = await showDatePicker(
-                  context: context,
-                  initialDate: _date ?? now.add(const Duration(days: 1)),
-                  firstDate: now,
-                  lastDate: now.add(const Duration(days: 180)));
-              if (value != null && mounted) setState(() => _date = value);
-            }),
-        ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.schedule),
-            title: Text(_time == null ? 'Pickup time' : _time!.format(context)),
-            onTap: () async {
-              final value = await showTimePicker(
-                  context: context,
-                  initialTime: _time ?? const TimeOfDay(hour: 10, minute: 0));
-              if (value != null && mounted) setState(() => _time = value);
-            }),
-        const DetailRow('Timezone', 'Africa/Lagos'),
-        const SizedBox(height: 24),
-        PrimaryButton(
-            label: 'Continue to parcel details',
-            onPressed: _date == null || _time == null
-                ? null
-                : () {
-                    final value = DateTime(_date!.year, _date!.month,
-                        _date!.day, _time!.hour, _time!.minute);
-                    if (!value.isAfter(DateTime.now())) {
-                      showActionError(context,
-                          StateError('Choose a future collection time.'));
-                      return;
-                    }
-                    Navigator.pushNamed(context, '/p2p-request',
-                        arguments: value);
-                  }),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Schedule a delivery',
+          subtitle:
+              'Pick a convenient collection window. Your selection stays with this booking.',
+          children: [
+            DesignCard(
+                color: const Color(0xFFFAFAF8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_month_outlined),
+                    title: Text(_date == null
+                        ? 'Pickup date'
+                        : '${_date!.day}/${_date!.month}/${_date!.year}'),
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final value = await showDatePicker(
+                          context: context,
+                          initialDate:
+                              _date ?? now.add(const Duration(days: 1)),
+                          firstDate: now,
+                          lastDate: now.add(const Duration(days: 180)));
+                      if (value != null && mounted) {
+                        setState(() => _date = value);
+                      }
+                    })),
+            const SizedBox(height: 18),
+            DesignCard(
+                color: const Color(0xFFFAFAF8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.schedule),
+                    title: Text(
+                        _time == null ? 'Pickup time' : _time!.format(context)),
+                    onTap: () async {
+                      final value = await showTimePicker(
+                          context: context,
+                          initialTime:
+                              _time ?? const TimeOfDay(hour: 10, minute: 0));
+                      if (value != null && mounted) {
+                        setState(() => _time = value);
+                      }
+                    })),
+            const DetailRow('Timezone', 'Africa/Lagos'),
+            const SizedBox(height: 16),
+            TextField(
+                controller: _pickup,
+                decoration: const InputDecoration(
+                    labelText: 'Pickup address',
+                    suffixIcon: Icon(Icons.location_on_outlined))),
+            const SizedBox(height: 18),
+            TextField(
+                controller: _dropoff,
+                decoration: const InputDecoration(
+                    labelText: 'Drop-off address',
+                    suffixIcon: Icon(Icons.location_on_outlined))),
+            const SizedBox(height: 24),
+            PrimaryButton(
+                label: 'Continue to parcel details',
+                onPressed: _date == null || _time == null
+                    ? null
+                    : () {
+                        final value = DateTime(_date!.year, _date!.month,
+                            _date!.day, _time!.hour, _time!.minute);
+                        if (!value.isAfter(DateTime.now())) {
+                          showActionError(context,
+                              StateError('Choose a future collection time.'));
+                          return;
+                        }
+                        context.read<SendFlowProvider>().setDetails(
+                            pickupAddress: _pickup.text.trim(),
+                            dropoffAddress: _dropoff.text.trim());
+                        Navigator.pushNamed(context, '/p2p-request',
+                            arguments: value);
+                      }),
+          ]);
 }

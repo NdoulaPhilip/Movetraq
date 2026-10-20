@@ -13,7 +13,7 @@ class DeliveryProgress extends StatelessWidget {
       OrderStatus.accepted => 1,
       OrderStatus.pickedUp => 2,
       OrderStatus.delivered || OrderStatus.released => 3,
-      _ => 0,
+      _ => -1,
     };
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -25,22 +25,23 @@ class DeliveryProgress extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: Column(children: [
-                  Container(
-                    height: 4,
-                    color: status != OrderStatus.cancelled && entry.key <= stage
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 3, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: entry.key <= stage
                         ? AppColors.accent
-                        : AppColors.borderSoft,
+                        : const Color(0xFFF3F2EC),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(height: 8),
-                  Text(entry.value,
+                  child: Text(entry.value,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: entry.key == stage
                               ? FontWeight.w600
                               : FontWeight.w400)),
-                ]),
+                ),
               ),
             ),
         ],

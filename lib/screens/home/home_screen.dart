@@ -101,11 +101,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         greeting: greeting.data,
                         currentLocation:
                             pickup.isNotEmpty ? pickup : location.data?.address,
-                        deviceLocation: location.data?.latitude == null ||
-                                location.data?.longitude == null
-                            ? null
-                            : LatLng(location.data!.latitude!,
-                                location.data!.longitude!),
                         locationLabel: pickup.isNotEmpty
                             ? 'Selected pickup'
                             : 'Current location',
@@ -134,7 +129,6 @@ class HomeContent extends StatelessWidget {
       this.profile,
       this.recentOrder,
       this.currentLocation,
-      this.deviceLocation,
       this.greeting,
       this.locationLabel = 'Current location',
       this.locationError,
@@ -146,7 +140,6 @@ class HomeContent extends StatelessWidget {
   final AppUser? profile;
   final ParcelOrder? recentOrder;
   final String? currentLocation;
-  final LatLng? deviceLocation;
   final String? greeting;
   final String locationLabel;
   final String? locationError;
@@ -275,12 +268,6 @@ class HomeContent extends StatelessWidget {
           const Text('What are we moving today?',
               style: TextStyle(fontSize: 16, color: AppColors.muted)),
           const SizedBox(height: 18),
-          if (deviceLocation != null) ...[
-            ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: MiniMap(courierLocation: deviceLocation, height: 180)),
-            const SizedBox(height: 18),
-          ],
           InkWell(
               onTap: () => _open(context, '/location-search'),
               child: Container(

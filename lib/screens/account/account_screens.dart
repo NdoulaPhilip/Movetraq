@@ -1,3 +1,5 @@
+import '../../services/node_api_client.dart';
+import '../../features/addresses/location_search_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,10 +11,10 @@ import '../../services/local_data_service.dart';
 import '../../services/feature_gateway.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_page.dart';
+import '../../widgets/design_ui.dart';
 import '../../widgets/movetraq_brand.dart';
 import '../../widgets/premium_ui.dart';
 import '../../widgets/primary_button.dart';
-import '../shared/feature_screen.dart';
 import '../../core/theme/preferences.dart';
 
 class PersonalDetailsScreen extends StatefulWidget {
@@ -94,24 +96,36 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
             key: _form,
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SectionTitle('Contact information'),
+              const Text('Full name',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
               TextFormField(
                   controller: _name,
                   enabled: !_busy,
                   maxLength: 120,
                   textCapitalization: TextCapitalization.words,
                   autofillHints: const [AutofillHints.name],
-                  decoration: const InputDecoration(labelText: 'Full name'),
+                  decoration: const InputDecoration(counterText: ''),
                   validator: (value) => (value?.trim().length ?? 0) < 2
                       ? 'Enter your name'
                       : null),
               const SizedBox(height: 16),
+              const Text('Email address',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              InputDecorator(
+                  decoration: const InputDecoration(),
+                  child: Text(profile.email)),
+              const SizedBox(height: 20),
+              const Text('Phone number',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
               TextFormField(
                   controller: _phone,
                   enabled: !_busy,
                   keyboardType: TextInputType.phone,
                   autofillHints: const [AutofillHints.telephoneNumber],
-                  decoration: const InputDecoration(labelText: 'Phone number'),
+                  decoration: const InputDecoration(),
                   validator: (value) {
                     final phone = value?.trim() ?? '';
                     return phone.isNotEmpty &&
@@ -120,10 +134,6 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                         : null;
                   }),
               const SizedBox(height: 16),
-              ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Email'),
-                  subtitle: Text(profile.email)),
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Semantics(
@@ -161,7 +171,8 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
   @override
   Widget build(BuildContext context) => AppPage(
         title: 'Saved addresses',
-        subtitle: 'Your pickup and delivery locations.',
+        subtitle:
+            'Keep pickup and delivery locations ready for your next booking.',
         actions: [
           IconButton(
               tooltip: 'Add address',
@@ -169,6 +180,9 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
               onPressed: () => Navigator.pushNamed(context, '/address-edit'))
         ],
         children: [
+          const Text('Select an address to use for your next delivery.',
+              style: TextStyle(color: AppColors.muted, height: 1.6)),
+          const SizedBox(height: 16),
           StreamBuilder<List<SavedAddress>>(
               stream: _stream,
               builder: (context, snapshot) {
@@ -187,7 +201,7 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
                   for (final address in addresses)
                     Padding(
                         padding: const EdgeInsets.only(bottom: 12),
-                        child: PremiumSurface(
+                        child: DesignCard(
                             child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -199,7 +213,10 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
                                     child: Text(address.label,
                                         style: const TextStyle(
                                             fontWeight: FontWeight.w600))),
+                                if (address.isDefault)
+                                  const DesignBadge('Current'),
                                 PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_horiz),
                                     tooltip: 'Address actions',
                                     onSelected: (value) async {
                                       if (value == 'edit') {
@@ -236,12 +253,14 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
                                               child: Text('Edit')),
                                           PopupMenuItem(
                                               value: 'delete',
-                                              child: Text('Delete'))
+                                              child: Text('Delete',
+                                                  style: TextStyle(
+                                                      color: Colors.red)))
                                         ]),
                               ]),
                               Text(address.address,
                                   style: const TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 14,
                                       color: AppColors.muted,
                                       height: 1.5)),
                               const SizedBox(height: 14),
@@ -295,72 +314,196 @@ class _SavedAddressesScreenState extends State<SavedAddressesScreen> {
       );
 }
 
-class AddressEditScreen extends StatelessWidget {
+class AddressEditScreen extends StatefulWidget {
   const AddressEditScreen({super.key, this.address});
   final SavedAddress? address;
   @override
-  Widget build(BuildContext context) => FeatureFormScreen(
-        title: address == null ? 'Add an address' : 'Edit address',
-        action: 'Save address',
-        fields: const [
-          FormFieldSpec('label', 'Label', hint: 'Home, Work...'),
-          FormFieldSpec('address', 'Street address', kind: FieldKind.multiline)
-        ],
-        initialValues: {'label': address?.label, 'address': address?.address},
-        onSubmit: (context, values) async {
-          final uid = context.read<AuthProvider>().profile?.uid;
-          if (uid == null) throw StateError('Sign in to save an address.');
-          await context.read<LocalDataService>().saveAddress(uid,
-              id: address?.id,
-              label: values['label'] as String,
-              address: values['address'] as String);
-        },
-      );
+  State<AddressEditScreen> createState() => _AddressEditScreenState();
+}
+
+class _AddressEditScreenState extends State<AddressEditScreen> {
+  final _form = GlobalKey<FormState>();
+  late final TextEditingController _label, _street;
+  bool _busy = false;
+  Object? _error;
+  @override
+  void initState() {
+    super.initState();
+    _label = TextEditingController(text: widget.address?.label ?? '');
+    _street = TextEditingController(text: widget.address?.address ?? '');
+  }
+
+  @override
+  void dispose() {
+    _label.dispose();
+    _street.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_busy || !_form.currentState!.validate()) return;
+    final uid = context.read<AuthProvider>().profile?.uid;
+    if (uid == null) {
+      setState(() => _error = StateError('Sign in to save an address.'));
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<LocalDataService>().saveAddress(uid,
+          id: widget.address?.id,
+          label: _label.text.trim(),
+          address: _street.text.trim());
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+          title: widget.address == null ? 'Add an address' : 'Edit address',
+          subtitle:
+              'Add a clear address and a helpful landmark for easier collection and handover.',
+          children: [
+            Form(
+                key: _form,
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Label (Home, Work...)',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                          controller: _label,
+                          enabled: !_busy,
+                          decoration:
+                              const InputDecoration(hintText: 'Home, Work...'),
+                          validator: (value) => (value ?? '').trim().isEmpty
+                              ? 'Enter a label'
+                              : null),
+                      const SizedBox(height: 20),
+                      const Text('Street address',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                          controller: _street,
+                          enabled: !_busy,
+                          minLines: 1,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                              hintText: 'Street, area or landmark',
+                              suffixIcon: IconButton(
+                                  tooltip: 'Find an address',
+                                  icon: const Icon(Icons.location_on_outlined),
+                                  onPressed: _busy
+                                      ? null
+                                      : () async {
+                                          final value = await Navigator.push<
+                                                  AddressSuggestion>(
+                                              context,
+                                              MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const LocationSearchScreen(
+                                                          returnSelection:
+                                                              true)));
+                                          if (value != null && mounted) {
+                                            setState(() =>
+                                                _street.text = value.address);
+                                          }
+                                        })),
+                          validator: (value) => (value ?? '').trim().isEmpty
+                              ? 'Enter a street address'
+                              : null),
+                    ])),
+            const SizedBox(height: 28),
+            if (_error != null) LoadError(error: _error!),
+            PrimaryButton(
+                label: 'Save address', loading: _busy, onPressed: _save),
+          ]);
 }
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
   @override
-  Widget build(BuildContext context) =>
-      const AppPage(title: 'Settings', children: [
-        SectionTitle('Security'),
-        RouteTile(
-            title: 'Security & PIN',
-            icon: Icons.shield_outlined,
-            route: '/security'),
-        RouteTile(
-            title: 'Devices & sessions',
-            icon: Icons.devices_outlined,
-            route: '/sessions'),
-        RouteTile(
-            title: 'Blocked people',
-            icon: Icons.block_outlined,
-            route: '/blocked-users'),
-        Divider(color: AppColors.borderSoft),
-        SectionTitle('Preferences'),
-        RouteTile(
-            title: 'Notifications',
-            icon: Icons.notifications_outlined,
-            route: '/notification-preferences'),
-        RouteTile(
-            title: 'Delivery preferences',
-            icon: Icons.local_shipping_outlined,
-            route: '/delivery-preferences'),
-        RouteTile(
-            title: 'Display & accessibility',
-            icon: Icons.accessibility_new_outlined,
-            route: '/display-preferences'),
-        RouteTile(
-            title: 'Privacy', icon: Icons.lock_outline, route: '/privacy'),
-        Divider(color: AppColors.borderSoft),
-        SectionTitle('Account'),
-        RouteTile(
-            title: 'Account controls',
-            icon: Icons.manage_accounts_outlined,
-            route: '/account-controls'),
-        RouteTile(
-            title: 'About MoveTraq', icon: Icons.info_outline, route: '/about'),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Settings',
+          subtitle: 'Make MoveTraq work your way.',
+          children: [
+            _group(context, 'SECURITY', const [
+              ('Security & PIN', 'Manage your payment PIN', '/security'),
+              (
+                'Devices & sessions',
+                'Review where you are signed in',
+                '/sessions'
+              ),
+              (
+                'Blocked people',
+                'Review and unblock contacts',
+                '/blocked-users'
+              ),
+            ]),
+            _group(context, 'PREFERENCES', const [
+              (
+                'Notifications',
+                'Delivery updates, receipts and offers',
+                '/notification-preferences'
+              ),
+              (
+                'Delivery preferences',
+                'Default service and contact method',
+                '/delivery-preferences'
+              ),
+              (
+                'Display & accessibility',
+                'Motion and larger form text',
+                '/display-preferences'
+              ),
+              ('Privacy', 'Saved suggestions and personalization', '/privacy'),
+            ]),
+            _group(context, 'ACCOUNT', const [
+              (
+                'Account controls',
+                'Manage your account and sign out',
+                '/account-controls'
+              ),
+              ('About MoveTraq', 'App information', '/about'),
+            ]),
+          ]);
+  Widget _group(BuildContext context, String label,
+          List<(String, String, String)> rows) =>
+      Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: DesignCard(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.muted)),
+                const SizedBox(height: 8),
+                for (final row in rows)
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(row.$1,
+                          style: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w600)),
+                      subtitle: Text(row.$2,
+                          style: const TextStyle(
+                              fontSize: 11,
+                              height: 1.6,
+                              color: AppColors.muted)),
+                      trailing: const Icon(Icons.chevron_right, size: 18),
+                      onTap: () => Navigator.pushNamed(context, row.$3)),
+              ])));
 }
 
 class SecurityScreen extends StatefulWidget {
@@ -406,45 +549,49 @@ class _SecurityScreenState extends State<SecurityScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Security & PIN', children: [
-        const InfoBand(
-            title: 'Your account, protected',
-            body: 'Biometric unlock is not configured on this device.',
-            icon: Icons.fingerprint),
-        SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Payment PIN'),
-            value: _enabled,
-            onChanged:
-                _busy ? null : (value) => setState(() => _enabled = value)),
-        Form(
-            key: _form,
-            child: Column(children: [
-              if (_enabled) ...[
-                TextFormField(
-                    controller: _pin,
-                    obscureText: true,
-                    keyboardType: TextInputType.number,
-                    decoration:
-                        const InputDecoration(labelText: 'New 4-digit PIN'),
-                    validator: (value) =>
-                        RegExp(r'^\d{4}$').hasMatch(value ?? '')
-                            ? null
-                            : 'Enter four digits'),
-                const SizedBox(height: 18),
-                TextFormField(
-                    controller: _confirmation,
-                    obscureText: true,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Confirm PIN'),
-                    validator: (value) =>
-                        value == _pin.text ? null : 'PINs must match'),
-              ]
-            ])),
-        const SizedBox(height: 24),
-        PrimaryButton(label: 'Update PIN', loading: _busy, onPressed: _save),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Security & PIN',
+          subtitle: 'Manage your account security and payment PIN.',
+          children: [
+            const DesignNote(
+              title: 'Your account, protected',
+              body: 'Biometric unlock is not configured on this device.',
+            ),
+            SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Payment PIN'),
+                value: _enabled,
+                onChanged:
+                    _busy ? null : (value) => setState(() => _enabled = value)),
+            Form(
+                key: _form,
+                child: Column(children: [
+                  if (_enabled) ...[
+                    TextFormField(
+                        controller: _pin,
+                        obscureText: true,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: 'New 4-digit PIN'),
+                        validator: (value) =>
+                            RegExp(r'^\d{4}$').hasMatch(value ?? '')
+                                ? null
+                                : 'Enter four digits'),
+                    const SizedBox(height: 18),
+                    TextFormField(
+                        controller: _confirmation,
+                        obscureText: true,
+                        keyboardType: TextInputType.number,
+                        decoration:
+                            const InputDecoration(labelText: 'Confirm PIN'),
+                        validator: (value) =>
+                            value == _pin.text ? null : 'PINs must match'),
+                  ]
+                ])),
+            const SizedBox(height: 24),
+            PrimaryButton(
+                label: 'Update PIN', loading: _busy, onPressed: _save),
+          ]);
 }
 
 class PreferenceScreen extends StatefulWidget {
@@ -453,9 +600,11 @@ class PreferenceScreen extends StatefulWidget {
       required this.title,
       required this.group,
       required this.toggles,
-      this.choices = const {}});
+      this.choices = const {},
+      this.work = false});
   final String title;
   final String group;
+  final bool work;
   final Map<String, String> toggles;
   final Map<String, List<String>> choices;
   @override
@@ -529,41 +678,136 @@ class _PreferenceScreenState extends State<PreferenceScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(title: widget.title, children: [
-        FutureBuilder<void>(
-            future: _load,
-            builder: (context, snapshot) => Column(children: [
-                  for (final entry in widget.choices.entries)
-                    Padding(
-                        padding: const EdgeInsets.only(bottom: 18),
-                        child: DropdownButtonFormField<String>(
-                            isExpanded: true,
-                            initialValue:
-                                entry.value.contains(_values[entry.key])
-                                    ? _values[entry.key] as String
-                                    : null,
-                            decoration: InputDecoration(
-                                labelText: entry.key.replaceAll('_', ' ')),
-                            items: entry.value
-                                .map((item) => DropdownMenuItem(
-                                    value: item, child: Text(item)))
-                                .toList(),
+  Widget build(BuildContext context) => AppPage(
+          title: widget.title,
+          subtitle: widget.work
+              ? 'Set your transport, delivery area and work notifications.'
+              : switch (widget.group) {
+                  'delivery_preferences' =>
+                    'Choose your starting preferences for new deliveries.',
+                  'display_preferences' =>
+                    'Adjust motion and text for comfortable reading.',
+                  'privacy_preferences' =>
+                    'Manage your location-sharing and communication preferences.',
+                  'notifications' =>
+                    'Choose which delivery, payment and account updates you want to receive.',
+                  _ => null,
+                },
+          children: [
+            if (widget.work)
+              const DesignNote(
+                  title: 'Set up how and where you want to deliver',
+                  body:
+                      'Save your preferences to update your delivery workspace.'),
+            FutureBuilder<void>(
+                future: _load,
+                builder: (context, snapshot) => DesignCard(
+                        child: Column(children: [
+                      for (final entry in widget.choices.entries)
+                        Padding(
+                            padding: const EdgeInsets.only(bottom: 18),
+                            child: DropdownButtonFormField<String>(
+                                isExpanded: true,
+                                initialValue:
+                                    entry.value.contains(_values[entry.key])
+                                        ? _values[entry.key] as String
+                                        : null,
+                                decoration: InputDecoration(
+                                    labelText: switch (entry.key) {
+                                  'preferred_service' => 'Default service',
+                                  'preferred_contact' =>
+                                    'Preferred contact method',
+                                  _ => entry.key.replaceAll('_', ' ')
+                                }),
+                                items: entry.value
+                                    .map((item) => DropdownMenuItem(
+                                        value: item, child: Text(item)))
+                                    .toList(),
+                                onChanged: (value) => setState(
+                                    () => _values[entry.key] = value))),
+                      if (widget.work &&
+                          snapshot.connectionState == ConnectionState.done)
+                        Padding(
+                            padding: const EdgeInsets.only(bottom: 18),
+                            child: TextFormField(
+                                initialValue:
+                                    _values['delivery_area']?.toString() ?? '',
+                                decoration: const InputDecoration(
+                                    labelText: 'Delivery area'),
+                                onChanged: (value) =>
+                                    _values['delivery_area'] = value.trim())),
+                      for (final entry in widget.toggles.entries)
+                        SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(entry.value,
+                                style: const TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.w600)),
+                            subtitle: switch (entry.key) {
+                              'new_job_alerts' => const Text(
+                                  'Notify me about delivery requests',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'pickup_reminders' => const Text(
+                                  'Remind me about upcoming pickups',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'reduce_motion' => const Text(
+                                  'Reduce sliding and delivery animations',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'larger_text' => const Text(
+                                  'Increase text size in forms and detail cards',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'scheduled_reminders' => const Text(
+                                  'Remind me before a scheduled pickup',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'push_enabled' => const Text(
+                                  'Updates while you are on the move',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'email_enabled' => const Text(
+                                  'Payments and delivery summaries',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'share_active_delivery_location' => const Text(
+                                  'Your preference for active delivery tracking',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              'marketing_consent' => const Text(
+                                  'Occasional offers and product updates',
+                                  style: TextStyle(
+                                      fontSize: 11, color: AppColors.muted)),
+                              _ => null,
+                            },
+                            value: _values[entry.key] == true,
                             onChanged: (value) =>
-                                setState(() => _values[entry.key] = value))),
-                  for (final entry in widget.toggles.entries)
-                    SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(entry.value,
-                            style: const TextStyle(fontSize: 13)),
-                        value: _values[entry.key] == true,
-                        onChanged: (value) =>
-                            setState(() => _values[entry.key] = value)),
-                ])),
-        const SizedBox(height: 18),
-        if (_error != null) LoadError(error: _error!),
-        PrimaryButton(
-            label: 'Save preferences', loading: _busy, onPressed: _save),
-      ]);
+                                setState(() => _values[entry.key] = value)),
+                    ]))),
+            const SizedBox(height: 18),
+            if (widget.group == 'privacy_preferences')
+              const DesignNote(
+                  title: 'You control your location',
+                  body:
+                      'Device location and address lookups use connected services. Live delivery sharing requires your consent for an active delivery.'),
+            if (_error != null) LoadError(error: _error!),
+            PrimaryButton(
+                label: 'Save preferences', loading: _busy, onPressed: _save),
+            if (widget.work) ...[
+              const SizedBox(height: 12),
+              SecondaryButton(
+                  label: 'Go offline',
+                  onPressed: () async {
+                    final auth = context.read<AuthProvider>();
+                    final ok = await auth.setDelivererOnline(false);
+                    if (context.mounted && !ok) {
+                      showActionError(context,
+                          auth.errorMessage ?? 'Unable to go offline.');
+                    }
+                  }),
+            ],
+          ]);
 }
 
 class AccountControlsScreen extends StatelessWidget {
@@ -571,6 +815,10 @@ class AccountControlsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       AppPage(title: 'Account controls', children: [
+        const DesignNote(
+            title: 'Your account data',
+            body:
+                'Orders, saved addresses and account preferences belong to your account. Signing out does not delete them.'),
         const RouteTile(
             title: 'Devices & sessions',
             icon: Icons.devices_outlined,
@@ -616,11 +864,21 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   @override
   Widget build(BuildContext context) =>
       AppPage(title: 'Delete account', children: [
-        const InfoBand(
-            title: 'Delete your account?',
-            body:
-                'Deletion is permanent. Records required for payments, disputes and legal retention may be anonymized and retained.',
-            icon: Icons.warning_amber_outlined),
+        const DesignCard(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Delete your account?',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.danger)),
+          SizedBox(height: 16),
+          Text(
+              'Deletion is permanent. Records required for payments, disputes and legal retention may be anonymized and retained.',
+              style:
+                  TextStyle(fontSize: 13, height: 1.7, color: AppColors.muted)),
+        ])),
+        const SizedBox(height: 20),
         TextField(
             controller: _controller,
             onChanged: (_) => setState(() {}),
@@ -670,14 +928,28 @@ class AboutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       const AppPage(title: 'About MoveTraq', children: [
-        Center(child: MoveTraqMark(size: 64)),
-        SizedBox(height: 28),
-        InfoBand(
-            title: 'MoveTraq',
-            body: 'Delivery, simplified.',
-            icon: Icons.inventory_2_outlined),
-        DetailRow('Version', '1.0.0'),
-        DetailRow('Currency', 'Nigerian naira (NGN)'),
+        Center(child: MoveTraqMark(size: 42)),
+        SizedBox(height: 24),
+        DesignCard(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('MoveTraq',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          SizedBox(height: 18),
+          Text('Delivery, simplified.',
+              style: TextStyle(fontSize: 13, color: AppColors.muted)),
+          SizedBox(height: 14),
+          Text('Version 1.0.0',
+              style: TextStyle(fontSize: 13, color: AppColors.muted)),
+          SizedBox(height: 14),
+          Text('Currency: Nigerian naira (NGN)',
+              style: TextStyle(fontSize: 13, color: AppColors.muted)),
+        ])),
+        SizedBox(height: 18),
+        Text(
+            'Your deliveries, account changes and payments use connected services. Payment completion requires server verification.',
+            style:
+                TextStyle(fontSize: 13, height: 1.7, color: AppColors.muted)),
         RouteTile(
             title: 'Help & support',
             icon: Icons.support_agent,

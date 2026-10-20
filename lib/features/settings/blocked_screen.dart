@@ -1,3 +1,4 @@
+import '../../widgets/design_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/feature_gateway.dart';
@@ -60,45 +61,54 @@ class _BlockedScreenState extends State<BlockedScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Blocked people', children: [
-        FutureBuilder<Map<String, dynamic>>(
-            future: _people,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return LoadError(error: snapshot.error!);
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final people = snapshot.data!['blockedUsers'];
-              if (people is! List) {
-                return const InfoBand(
-                    title: 'Blocked accounts could not be loaded.');
-              }
-              if (people.isEmpty) {
-                return const InfoBand(title: 'You have not blocked anyone.');
-              }
-              return Column(
-                  children: people
-                      .whereType<Map>()
-                      .map((person) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                                person['blocked_id']?.toString() ?? 'Account'),
-                            subtitle: Text(person['reason']?.toString() ??
-                                'Excluded from future matching'),
-                            trailing: IconButton(
-                                tooltip: 'Unblock',
-                                onPressed: _busy == null &&
-                                        person['blocked_id'] is String
-                                    ? () =>
-                                        _unblock(person['blocked_id'] as String)
-                                    : null,
-                                icon: const Icon(Icons.person_remove_outlined)),
-                          ))
-                      .toList());
-            }),
-        if (_error != null) LoadError(error: _error!),
-        const RouteTile(
-            title: 'Block a person', icon: Icons.block, route: '/block-user'),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Blocked people',
+          subtitle: 'Manage people you have blocked from future matching.',
+          children: [
+            FutureBuilder<Map<String, dynamic>>(
+                future: _people,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return LoadError(error: snapshot.error!);
+                  }
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final people = snapshot.data!['blockedUsers'];
+                  if (people is! List) {
+                    return const InfoBand(
+                        title: 'Blocked accounts could not be loaded.');
+                  }
+                  if (people.isEmpty) {
+                    return const DesignNote(
+                        title: 'You have not blocked anyone.',
+                        body: 'People you block will appear here.');
+                  }
+                  return Column(
+                      children: people
+                          .whereType<Map>()
+                          .map((person) => ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(person['blocked_id']?.toString() ??
+                                    'Account'),
+                                subtitle: Text(person['reason']?.toString() ??
+                                    'Excluded from future matching'),
+                                trailing: IconButton(
+                                    tooltip: 'Unblock',
+                                    onPressed: _busy == null &&
+                                            person['blocked_id'] is String
+                                        ? () => _unblock(
+                                            person['blocked_id'] as String)
+                                        : null,
+                                    icon: const Icon(
+                                        Icons.person_remove_outlined)),
+                              ))
+                          .toList());
+                }),
+            if (_error != null) LoadError(error: _error!),
+            const RouteTile(
+                title: 'Block a person',
+                icon: Icons.block,
+                route: '/block-user'),
+          ]);
 }

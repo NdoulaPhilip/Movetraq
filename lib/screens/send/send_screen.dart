@@ -10,7 +10,7 @@ import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../services/node_api_client.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/mini_map.dart';
+import '../../features/addresses/location_search_screen.dart';
 
 class SendScreen extends StatefulWidget {
   const SendScreen({super.key});
@@ -23,12 +23,12 @@ class _SendScreenState extends State<SendScreen> {
   final ImagePicker _imagePicker = ImagePicker();
 
   final _categories = const [
+    ('document', 'Documents', Icons.description_outlined),
     ('parcel', 'Parcel', Icons.inventory_2_outlined),
-    ('document', 'Document', Icons.description_outlined),
     ('food', 'Food', Icons.shopping_bag_outlined),
     ('fragile', 'Fragile', Icons.card_giftcard_outlined),
-    ('electronics', 'Electronics', Icons.devices_other_outlined),
-    ('clothing', 'Clothing', Icons.checkroom_outlined),
+    ('groceries', 'Groceries', Icons.shopping_bag_outlined),
+    ('other', 'Other', Icons.more_horiz),
   ];
 
   @override
@@ -153,7 +153,22 @@ class _SendScreenState extends State<SendScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 116),
               children: [
-                const ScreenHeader(title: 'New order'),
+                Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton.outlined(
+                        tooltip: 'Back',
+                        onPressed: () => Navigator.maybePop(context),
+                        style: IconButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFFEDEDEB)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(13))),
+                        icon: const Icon(Icons.chevron_left, size: 22))),
+                const SizedBox(height: 10),
+                const Text('Book a delivery',
+                    style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink)),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(5),
@@ -164,8 +179,8 @@ class _SendScreenState extends State<SendScreen> {
                     children: [
                       Expanded(
                         child: _ModeTab(
-                          label: 'Peer-to-peer',
-                          sub: 'Pick a deliverer & negotiate',
+                          label: 'P2P delivery',
+                          sub: 'Set your price',
                           selected: flow.isP2P,
                           onTap: () => flow.setMode(p2p: true),
                         ),
@@ -173,7 +188,7 @@ class _SendScreenState extends State<SendScreen> {
                       Expanded(
                         child: _ModeTab(
                           label: 'Express',
-                          sub: 'Fixed price, fastest pickup',
+                          sub: 'Get a delivery estimate',
                           selected: !flow.isP2P,
                           onTap: () => flow.setMode(p2p: false),
                         ),
@@ -183,89 +198,91 @@ class _SendScreenState extends State<SendScreen> {
                 ),
                 const SizedBox(height: 18),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: AppColors.borderSoft),
-                  ),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(19),
+                      border: Border.all(color: const Color(0xFFE7E8E1))),
                   child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 10,
-                            height: 10,
-                            margin: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border:
-                                    Border.all(color: AppColors.ink, width: 3)),
-                          ),
-                          const SizedBox(width: 13),
-                          Expanded(
-                            child: _AddressField(
-                              label: 'PICKUP',
-                              value: flow.pickupAddress,
-                              hint: 'Enter pickup address',
-                              onChanged: (value) => flow.setDetails(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _AddressField(
+                            label: 'Collect from',
+                            value: flow.pickupAddress,
+                            hint: 'Enter pickup address',
+                            onMapPick: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const LocationSearchScreen(
+                                        pickup: true))),
+                            onChanged: (value) => flow.setDetails(
                                 pickupAddress: value,
-                                clearPickupLocation: true,
-                              ),
-                              onSuggestionSelected: (suggestion) {
-                                flow.setDetails(
-                                  pickupAddress: suggestion.address,
-                                  pickupLocation:
-                                      _suggestionLocation(suggestion),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.only(left: 23),
-                        child: Divider(height: 20, color: AppColors.borderSoft),
-                      ),
-                      Row(
-                        children: [
-                          Container(
-                            width: 10,
-                            height: 10,
-                            margin: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: const BoxDecoration(
-                                color: AppColors.accent,
-                                shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 13),
-                          Expanded(
-                            child: _AddressField(
-                              label: 'DROP-OFF',
-                              value: flow.dropoffAddress,
-                              hint: 'Enter drop-off address',
-                              onChanged: (value) => flow.setDetails(
+                                clearPickupLocation: true),
+                            onSuggestionSelected: (value) => flow.setDetails(
+                                pickupAddress: value.address,
+                                pickupLocation: _suggestionLocation(value))),
+                        const SizedBox(height: 18),
+                        _AddressField(
+                            label: 'Deliver to',
+                            value: flow.dropoffAddress,
+                            hint: 'Enter drop-off address',
+                            onMapPick: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        const LocationSearchScreen())),
+                            onChanged: (value) => flow.setDetails(
                                 dropoffAddress: value,
-                                clearDropoffLocation: true,
-                              ),
-                              onSuggestionSelected: (suggestion) {
-                                flow.setDetails(
-                                  dropoffAddress: suggestion.address,
-                                  dropoffLocation:
-                                      _suggestionLocation(suggestion),
-                                );
-                              },
-                            ),
-                          ),
-                          const Icon(Icons.edit_location_alt_outlined,
-                              color: AppColors.faint),
-                        ],
-                      ),
-                    ],
-                  ),
+                                clearDropoffLocation: true),
+                            onSuggestionSelected: (value) => flow.setDetails(
+                                dropoffAddress: value.address,
+                                dropoffLocation: _suggestionLocation(value))),
+                        const SizedBox(height: 18),
+                        const Text('Recipient phone number',
+                            style: TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                            key: const ValueKey('recipient-phone'),
+                            initialValue: flow.recipientPhone,
+                            keyboardType: TextInputType.phone,
+                            autofillHints: const [
+                              AutofillHints.telephoneNumber
+                            ],
+                            onChanged: (value) =>
+                                flow.setDetails(recipientPhone: value),
+                            style: const TextStyle(fontSize: 13),
+                            decoration: const InputDecoration(
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 11, vertical: 12),
+                                hintText: 'e.g. +234 800 000 0000')),
+                        const SizedBox(height: 18),
+                        const Text('Parcel details',
+                            style: TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                            key: const ValueKey('parcel-details'),
+                            initialValue: flow.title,
+                            onChanged: (value) => flow.setDetails(title: value),
+                            textCapitalization: TextCapitalization.sentences,
+                            style: const TextStyle(fontSize: 13),
+                            decoration: const InputDecoration(
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 11, vertical: 12),
+                                hintText: 'Describe what you are sending')),
+                        const SizedBox(height: 18),
+                        const Text('Pickup: As soon as a deliverer accepts',
+                            style: TextStyle(
+                                fontSize: 11,
+                                height: 1.5,
+                                color: Color(0xFF608109))),
+                      ]),
                 ),
                 const SizedBox(height: 22),
-                const Text('What are you sending?',
+                const Text("What's in the parcel?",
                     style: TextStyle(
                         fontFamily: 'SpaceGrotesk',
                         fontWeight: FontWeight.w600,
@@ -278,7 +295,10 @@ class _SendScreenState extends State<SendScreen> {
                   physics: const NeverScrollableScrollPhysics(),
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
-                  childAspectRatio: 1.15,
+                  childAspectRatio:
+                      MediaQuery.textScalerOf(context).scale(12) > 14
+                          ? .85
+                          : 1.15,
                   children: _categories.map((c) {
                     final selected = flow.category == c.$1;
                     return InkWell(
@@ -298,7 +318,7 @@ class _SendScreenState extends State<SendScreen> {
                           children: [
                             Icon(c.$3,
                                 color:
-                                    selected ? AppColors.accent : AppColors.ink,
+                                    selected ? Colors.white : AppColors.inkSoft,
                                 size: 24),
                             const SizedBox(height: 8),
                             Text(c.$2,
@@ -665,7 +685,8 @@ class _SendScreenState extends State<SendScreen> {
             right: 0,
             bottom: 0,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 30),
+              padding: EdgeInsets.fromLTRB(
+                  20, 14, 20, 16 + MediaQuery.paddingOf(context).bottom),
               decoration: const BoxDecoration(
                 color: Colors.white,
               ),
@@ -681,6 +702,15 @@ class _SendScreenState extends State<SendScreen> {
                                 const SnackBar(
                                     content: Text(
                                         'Enter pickup and destination addresses.')));
+                            return;
+                          }
+                          final phone = flow.recipientPhone
+                              .replaceAll(RegExp(r'[\s()-]'), '');
+                          if (!RegExp(r'^\+?[0-9]{7,15}$').hasMatch(phone)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text(
+                                        'Enter a valid recipient phone number.')));
                             return;
                           }
                           Navigator.pushNamed(
@@ -703,7 +733,7 @@ class _SendScreenState extends State<SendScreen> {
                     children: [
                       Expanded(
                           child: Text(
-                              flow.isP2P ? 'Choose a deliverer' : 'Continue',
+                              flow.isP2P ? 'Choose deliverer' : 'Continue',
                               maxLines: 2,
                               style: const TextStyle(
                                   fontWeight: FontWeight.w600, fontSize: 14))),
@@ -712,8 +742,9 @@ class _SendScreenState extends State<SendScreen> {
                         children: [
                           Text(
                             flow.isP2P
-                                ? '₦${flow.offer.toStringAsFixed(0)}'
-                                : '₦${SendFlowProvider.expressSpeedPrices[flow.speedIndex].toStringAsFixed(0)}',
+                                ? _bookingPrice(flow.offer)
+                                : _bookingPrice(SendFlowProvider
+                                    .expressSpeedPrices[flow.speedIndex]),
                             style: const TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 15),
                           ),
@@ -757,7 +788,7 @@ class _ModeTab extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 5),
         decoration: BoxDecoration(
           color: selected ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
@@ -796,6 +827,7 @@ class _AddressField extends StatefulWidget {
   final String hint;
   final ValueChanged<String> onChanged;
   final ValueChanged<AddressSuggestion>? onSuggestionSelected;
+  final VoidCallback onMapPick;
 
   const _AddressField({
     required this.label,
@@ -803,6 +835,7 @@ class _AddressField extends StatefulWidget {
     required this.hint,
     required this.onChanged,
     this.onSuggestionSelected,
+    required this.onMapPick,
   });
 
   @override
@@ -900,7 +933,7 @@ class _AddressFieldState extends State<_AddressField> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 8),
         TextField(
           controller: _controller,
           minLines: 1,
@@ -919,11 +952,26 @@ class _AddressFieldState extends State<_AddressField> {
               fontWeight: FontWeight.w500,
             ),
             isDense: true,
-            filled: false,
-            contentPadding: EdgeInsets.zero,
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
+            filled: true,
+            fillColor: const Color(0xFFFAFBF7),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 11, vertical: 13),
+            suffixIcon: Padding(
+                padding: const EdgeInsets.all(4),
+                child: IconButton(
+                    tooltip: 'Select ${widget.label.toLowerCase()} location',
+                    onPressed: widget.onMapPick,
+                    style: IconButton.styleFrom(
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        minimumSize: const Size(34, 34),
+                        padding: const EdgeInsets.all(7),
+                        backgroundColor: const Color(0xFFEEF4D7),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10))),
+                    icon: const Icon(Icons.location_on_outlined,
+                        size: 19, color: AppColors.ink))),
+            suffixIconConstraints:
+                const BoxConstraints(minWidth: 42, minHeight: 42),
           ),
           onChanged: _handleChanged,
         ),
@@ -1191,4 +1239,10 @@ class _TermRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String _bookingPrice(double value) {
+  final whole = value.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (match) => '${match[1]},');
+  return '\u20a6$whole';
 }

@@ -12,14 +12,20 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/deliverer/deliverer_gate.dart';
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  const HomeShell({super.key, this.initialIndex = 0});
+  final int initialIndex;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
+  late int _index;
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex.clamp(0, 3);
+  }
 
   final _screens = const [
     HomeScreen(),

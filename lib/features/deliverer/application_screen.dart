@@ -5,12 +5,14 @@ import 'package:provider/provider.dart';
 import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
+import '../../widgets/design_ui.dart';
 import '../../widgets/primary_button.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/app_user.dart';
 
 class DelivererApplicationScreen extends StatefulWidget {
-  const DelivererApplicationScreen({super.key});
+  const DelivererApplicationScreen({super.key, this.startImmediately = false});
+  final bool startImmediately;
   @override
   State<DelivererApplicationScreen> createState() =>
       _DelivererApplicationScreenState();
@@ -23,6 +25,13 @@ class _DelivererApplicationScreenState
   DateTime? _birth;
   String? _transport;
   int _step = 0;
+  late bool _started;
+  @override
+  void initState() {
+    super.initState();
+    _started = widget.startImmediately;
+  }
+
   bool _lawful = false;
   bool _handling = false;
   bool _terms = false;
@@ -105,111 +114,201 @@ class _DelivererApplicationScreenState
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(
+  Widget build(BuildContext context) => !_started
+      ? AppPage(title: 'Become a deliverer', children: [
+          const InfoBand(
+              title: 'Deliver with confidence',
+              body: 'Flexible deliveries. A safer community.',
+              icon: Icons.local_shipping_outlined),
+          const DesignNote(
+              title: 'Get ready to apply',
+              body:
+                  'Review identity, safety and vehicle checks for your delivery work. Approval is required before you can accept jobs.'),
+          const RouteTile(
+              title: '1. Personal details',
+              subtitle: 'Your contact details and identity information',
+              icon: Icons.person_outline,
+              route: '/personal-details'),
+          const RouteTile(
+              title: '2. Identity & vehicle',
+              subtitle: 'Review your verification requirements',
+              icon: Icons.fact_check_outlined,
+              route: '/verification'),
+          const RouteTile(
+              title: '3. Safety essentials',
+              subtitle: 'Handover and incident reporting',
+              icon: Icons.shield_outlined,
+              route: '/courier-support'),
+          const SizedBox(height: 20),
+          PrimaryButton(
+              label: 'Start application',
+              onPressed: () => setState(() => _started = true)),
+        ])
+      : AppPage(
           title: _step == 3 ? 'Review application' : 'Your application',
+          subtitle: _step == 3
+              ? 'Check your details, transport and safety responses before submitting.'
+              : null,
           children: [
-            Wrap(
-                spacing: 8,
-                children: ['Personal', 'Transport', 'Safety', 'Review']
-                    .asMap()
-                    .entries
-                    .map((entry) => ChoiceChip(
-                        label: Text(entry.value),
-                        selected: _step == entry.key,
-                        onSelected: null))
-                    .toList()),
-            const SizedBox(height: 20),
-            if (_step == 0) ...[
-              const InfoBand(title: 'About you', icon: Icons.person_outline),
-              Form(
-                  key: _form,
-                  child: TextFormField(
-                      controller: _name,
-                      decoration:
-                          const InputDecoration(labelText: 'Legal full name'),
-                      validator: (value) => (value ?? '').trim().length < 2
-                          ? 'Enter your legal name'
-                          : null)),
-              const SizedBox(height: 16),
-              ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.calendar_month_outlined),
-                  title: Text(_birth == null
-                      ? 'Date of birth'
-                      : '${_birth!.day}/${_birth!.month}/${_birth!.year}'),
-                  onTap: () async {
-                    final now = DateTime.now();
-                    final date = await showDatePicker(
-                        context: context,
-                        initialDate: _birth ??
-                            DateTime(now.year - 18, now.month, now.day),
-                        firstDate: DateTime(now.year - 100),
-                        lastDate: now);
-                    if (date != null && mounted) setState(() => _birth = date);
-                  }),
-            ],
-            if (_step == 1) ...[
-              const SectionTitle('How will you deliver?'),
-              DropdownButtonFormField<String>(
-                  initialValue: _transport,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Transport'),
-                  items: _transports.entries
-                      .map((entry) => DropdownMenuItem(
-                          value: entry.key, child: Text(entry.value)))
-                      .toList(),
-                  onChanged: (value) => setState(() => _transport = value)),
+              if (_step < 3)
+                Wrap(
+                    spacing: 8,
+                    children: ['Personal', 'Transport', 'Safety', 'Review']
+                        .asMap()
+                        .entries
+                        .map((entry) => ChoiceChip(
+                            label: Text(entry.value),
+                            selected: _step == entry.key,
+                            onSelected: null))
+                        .toList()),
+              const SizedBox(height: 20),
+              if (_step == 0) ...[
+                DesignCard(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      const Text('About you',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 12),
+                      const Text(
+                          'Enter your legal name and date of birth for your application.',
+                          style: TextStyle(fontSize: 12, height: 1.7)),
+                      const SizedBox(height: 20),
+                      Form(
+                          key: _form,
+                          child: TextFormField(
+                              controller: _name,
+                              decoration: const InputDecoration(
+                                  labelText: 'Legal full name'),
+                              validator: (value) =>
+                                  (value ?? '').trim().length < 2
+                                      ? 'Enter your legal name'
+                                      : null)),
+                      const SizedBox(height: 16),
+                      ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.calendar_month_outlined),
+                          title: Text(_birth == null
+                              ? 'Date of birth'
+                              : '${_birth!.day}/${_birth!.month}/${_birth!.year}'),
+                          onTap: () async {
+                            final now = DateTime.now();
+                            final date = await showDatePicker(
+                                context: context,
+                                initialDate: _birth ??
+                                    DateTime(now.year - 18, now.month, now.day),
+                                firstDate: DateTime(now.year - 100),
+                                lastDate: now);
+                            if (date != null && mounted) {
+                              setState(() => _birth = date);
+                            }
+                          }),
+                      const SizedBox(height: 18),
+                      const Text('Account contact details',
+                          style: TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w600)),
+                      DetailRow(
+                          'Mobile number',
+                          context.watch<AuthProvider>().profile?.phone ??
+                              'Not available'),
+                      DetailRow(
+                          'Email address',
+                          context.watch<AuthProvider>().profile?.email ??
+                              'Not available'),
+                      const RouteTile(
+                          title: 'Update contact details',
+                          icon: Icons.person_outline,
+                          route: '/personal-details'),
+                    ])),
+              ],
+              if (_step == 1) ...[
+                const SectionTitle('How will you deliver?'),
+                DropdownButtonFormField<String>(
+                    initialValue: _transport,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'Transport'),
+                    items: _transports.entries
+                        .map((entry) => DropdownMenuItem(
+                            value: entry.key, child: Text(entry.value)))
+                        .toList(),
+                    onChanged: (value) => setState(() => _transport = value)),
+                const SizedBox(height: 18),
+                const InfoBand(
+                    title: 'Verification documents',
+                    body:
+                        'Identity documents are required. Motor vehicles may also require a licence, registration and insurance. Your approved policy is checked by the server.',
+                    icon: Icons.fact_check_outlined),
+              ],
+              if (_step == 2) ...[
+                CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                        'My transport meets applicable safety requirements.'),
+                    value: _lawful,
+                    onChanged: (value) =>
+                        setState(() => _lawful = value ?? false)),
+                CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title:
+                        const Text('I can collect and handle parcels safely.'),
+                    value: _handling,
+                    onChanged: (value) =>
+                        setState(() => _handling = value ?? false)),
+                CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('I agree to the delivery work terms.'),
+                    value: _terms,
+                    onChanged: (value) =>
+                        setState(() => _terms = value ?? false)),
+              ],
+              if (_step == 3) ...[
+                DesignCard(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      _reviewValue('Full name', _name.text),
+                      _reviewValue(
+                          'Phone',
+                          context.watch<AuthProvider>().profile?.phone ??
+                              'Not available'),
+                      _reviewValue(
+                          'Email',
+                          context.watch<AuthProvider>().profile?.email ??
+                              'Not available'),
+                      DetailRow('Date of birth',
+                          '${_birth!.day}/${_birth!.month}/${_birth!.year}'),
+                      DetailRow('Transport', _transports[_transport]!),
+                      const DetailRow('Safety declarations', 'Confirmed'),
+                    ])),
+                const SizedBox(height: 18),
+                const InfoBand(
+                    title: 'Approval is required',
+                    body:
+                        'Saving an application does not activate deliverer access. Upload and submit your required documents for review.'),
+              ],
+              if (_error != null) LoadError(error: _error!),
               const SizedBox(height: 18),
-              const InfoBand(
-                  title: 'Verification documents',
-                  body:
-                      'Identity documents are required. Motor vehicles may also require a licence, registration and insurance. Your approved policy is checked by the server.',
-                  icon: Icons.fact_check_outlined),
-            ],
-            if (_step == 2) ...[
-              CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                      'My transport meets applicable safety requirements.'),
-                  value: _lawful,
-                  onChanged: (value) =>
-                      setState(() => _lawful = value ?? false)),
-              CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('I can collect and handle parcels safely.'),
-                  value: _handling,
-                  onChanged: (value) =>
-                      setState(() => _handling = value ?? false)),
-              CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('I agree to the delivery work terms.'),
-                  value: _terms,
-                  onChanged: (value) =>
-                      setState(() => _terms = value ?? false)),
-            ],
-            if (_step == 3) ...[
-              DetailRow('Full name', _name.text),
-              DetailRow('Date of birth',
-                  '${_birth!.day}/${_birth!.month}/${_birth!.year}'),
-              DetailRow('Transport', _transports[_transport]!),
-              const DetailRow('Safety declarations', 'Confirmed'),
-              const InfoBand(
-                  title: 'Approval is required',
-                  body:
-                      'Saving an application does not activate deliverer access. Upload and submit your required documents for review.'),
-            ],
-            if (_error != null) LoadError(error: _error!),
-            const SizedBox(height: 18),
-            PrimaryButton(
-                label: _step == 3 ? 'Save application & continue' : 'Continue',
-                loading: _busy,
-                onPressed: _next),
-            if (_step > 0)
-              TextButton.icon(
-                  onPressed: _busy ? null : () => setState(() => _step--),
-                  icon: const Icon(Icons.chevron_left),
-                  label: const Text('Back')),
-          ]);
+              PrimaryButton(
+                  label:
+                      _step == 3 ? 'Save application & continue' : 'Continue',
+                  loading: _busy,
+                  onPressed: _next),
+              if (_step > 0)
+                TextButton.icon(
+                    onPressed: _busy ? null : () => setState(() => _step--),
+                    icon: const Icon(Icons.chevron_left),
+                    label: const Text('Back')),
+            ]);
+  Widget _reviewValue(String label, String value) => Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF98A1AF))),
+        const SizedBox(height: 6),
+        Text(value,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+      ]));
 }
 
 class VerificationScreen extends StatefulWidget {
@@ -251,25 +350,72 @@ class _VerificationScreenState extends State<VerificationScreen> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return AppPage(title: 'Delivery verification', children: [
+          return AppPage(title: 'Application status', children: [
             LoadError(error: snapshot.error!, onRetry: () => setState(_load))
           ]);
         }
         if (!snapshot.hasData) {
           return const AppPage(
-              title: 'Delivery verification',
+              title: 'Application status',
               children: [Center(child: CircularProgressIndicator())]);
         }
         final status = snapshot.data!['status']?.toString() ?? 'not_started';
         final editable = status == 'not_started' && _id.isNotEmpty;
-        return AppPage(title: 'Delivery verification', children: [
-          InfoBand(
-              title: status.replaceAll('_', ' '),
-              body: snapshot.data!['review_notes']?.toString() ??
-                  (status == 'approved'
-                      ? 'Your delivery application has been approved.'
-                      : 'Deliverer access remains restricted until an administrator approves your application.'),
-              icon: Icons.verified_user_outlined),
+        final profile = context.watch<AuthProvider>().profile;
+        return AppPage(title: 'Application status', children: [
+          DesignCard(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Icon(
+                    status == 'approved'
+                        ? Icons.verified_outlined
+                        : Icons.schedule_outlined,
+                    size: 30,
+                    color: const Color(0xFF608109)),
+                const SizedBox(height: 20),
+                Text(
+                    switch (status) {
+                      'not_started' => 'Complete your application',
+                      'approved' => 'Application approved',
+                      'rejected' => 'Application needs attention',
+                      _ => status.replaceAll('_', ' '),
+                    },
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w700)),
+                if (_id.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text(_id, style: const TextStyle(color: Color(0xFF7C8696))),
+                ],
+                const SizedBox(height: 16),
+                Text(
+                    snapshot.data!['review_notes']?.toString() ??
+                        (status == 'approved'
+                            ? 'Your delivery application has been approved.'
+                            : 'Complete screening and await approval to continue to your deliverer dashboard.'),
+                    style: const TextStyle(
+                        color: Color(0xFF7C8696), height: 1.65)),
+              ])),
+          if (profile != null) ...[
+            const SizedBox(height: 14),
+            DesignCard(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(profile.name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  Text(profile.email,
+                      style: const TextStyle(color: Color(0xFF7C8696))),
+                  if (profile.vehicleType.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(profile.vehicleType,
+                        style: const TextStyle(color: Color(0xFF7C8696))),
+                  ],
+                ])),
+            const SizedBox(height: 16),
+          ],
           if (status == 'not_started' || status == 'rejected')
             const RouteTile(
                 title: 'Identity information',
@@ -325,6 +471,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
           TextButton(
               onPressed: () => setState(_load),
               child: const Text('Refresh status')),
+          if (profile?.activeRole == UserRole.sender)
+            SecondaryButton(
+                label: 'Continue as sender',
+                onPressed: () => Navigator.pushNamed(context, '/home')),
         ]);
       });
 }

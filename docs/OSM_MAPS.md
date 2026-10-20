@@ -8,13 +8,42 @@ lookup and routes; it does not need redeployment for this display change.
 
 Google Maps display requires an Android Maps SDK key. Supply it with
 `--dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY`, `android/local.properties`,
-a Gradle property or the build environment. The Gradle decoder and Android manifest
-placeholder are restored. No Android Maps key was configured in the checked local
-properties/build environment when the display was restored.
+a Gradle property or the build environment. Blank values are ignored. When no
+explicit key is supplied, Gradle uses the Android client key in
+`android/app/google-services.json` whose package matches the app's application ID.
+It never reads the backend's server key. The resolved key is placed in the native
+Android manifest; restart with a newly built APK after changing it.
+
+The client key must allow Maps SDK for Android in its Google Cloud project, with
+billing enabled and Android restrictions matching the package and signing SHA-1.
+The debug map's **Map help** button shows the installed package and SHA-1 without
+displaying the key. A configured key alone does not confirm Maps authorization.
+See [Google's Android setup guide](https://developers.google.com/maps/documentation/android-sdk/start).
 
 ```powershell
 flutter run --dart-define=GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_KEY
 ```
+
+### Blank map verification (16 October 2026)
+
+The debug APK builds and includes the matching Android client key. A map-only
+emulator check initializes Google's native map and controls, but the SDK reports
+`Authorization failure`. Cloud authorization still needs correction before tiles
+can load; this is separate from GPS or the Render backend.
+
+In project `movetraq-1706f`:
+
+1. [Enable Maps SDK for Android](https://console.cloud.google.com/apis/library/maps-android-backend.googleapis.com?project=movetraq-1706f)
+   and verify that the project has active billing.
+2. In [Credentials](https://console.cloud.google.com/apis/credentials?project=movetraq-1706f),
+   allow Maps SDK for Android on the Android client key. Its Android application
+   restrictions must include package `com.example.movetraq` and this debug signing
+   SHA-1: `07:6E:8E:3A:7D:0A:99:C0:52:9B:16:56:5A:84:EF:53:C1:63:4C:85`.
+3. Reopen the map after the settings propagate. If replacing the key instead,
+   supply an Android Maps key through one of the build settings above and rebuild.
+
+Use the installed build's **Map help** values for other signing certificates.
+The seven map tests pass; the temporary smoke app is not part of the normal app.
 
 The following records the previous OSM implementation and provider setup. Its
 `MAP_TILE_*` mobile build flags are no longer used by the restored Google map views.

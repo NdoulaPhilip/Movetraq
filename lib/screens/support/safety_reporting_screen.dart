@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
+import '../../widgets/design_ui.dart';
 import '../../widgets/primary_button.dart';
 
 class SafetyReportingScreen extends StatefulWidget {
@@ -101,69 +102,79 @@ class _SafetyReportingScreenState extends State<SafetyReportingScreen> {
               return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    InfoBand(
-                        title: contact.name,
-                        body: 'Delivery contact',
-                        icon: Icons.person_outline),
-                    const SectionTitle('Report a concern'),
-                    if (_reported)
-                      const InfoBand(
-                          title: 'Report submitted',
-                          body: 'Follow your request in Help & support.',
-                          icon: Icons.check_circle_outline)
-                    else ...[
-                      Form(
-                          key: _form,
-                          child: Column(children: [
-                            DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                decoration:
-                                    const InputDecoration(labelText: 'Reason'),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: 'unsafe_behavior',
-                                      child: Text('Unsafe behavior')),
-                                  DropdownMenuItem(
-                                      value: 'harassment',
-                                      child: Text('Harassment')),
-                                  DropdownMenuItem(
-                                      value: 'fraud',
-                                      child: Text('Suspected fraud')),
-                                  DropdownMenuItem(
-                                      value: 'other',
-                                      child: Text('Other concern')),
-                                ],
-                                validator: (value) =>
-                                    value == null ? 'Choose a reason' : null,
-                                onChanged: _busy
-                                    ? null
-                                    : (value) =>
-                                        setState(() => _reason = value)),
-                            const SizedBox(height: 18),
-                            TextFormField(
-                                controller: _details,
-                                enabled: !_busy,
-                                maxLines: 4,
-                                maxLength: 2000,
-                                decoration: const InputDecoration(
-                                    labelText: 'Details (optional)')),
-                          ])),
-                      PrimaryButton(
-                          label: 'Save report',
-                          loading: _busy,
-                          onPressed: () => _report(contact)),
-                    ],
-                    const SectionTitle('Block this contact'),
-                    const Text(
-                        'Blocking prevents future matching. Existing deliveries remain available.'),
-                    const SizedBox(height: 16),
-                    if (_blocked)
-                      const InfoBand(
-                          title: 'Contact blocked', icon: Icons.block)
-                    else
-                      SecondaryButton(
-                          label: 'Block contact',
-                          onPressed: _busy ? null : () => _block(contact)),
+                    DesignNote(title: contact.name, body: 'Delivery contact'),
+                    DesignCard(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          const SectionTitle('Report a concern'),
+                          if (_reported)
+                            const InfoBand(
+                                title: 'Report submitted',
+                                body: 'Follow your request in Help & support.',
+                                icon: Icons.check_circle_outline)
+                          else ...[
+                            Form(
+                                key: _form,
+                                child: Column(children: [
+                                  DropdownButtonFormField<String>(
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                          labelText: 'Reason'),
+                                      items: const [
+                                        DropdownMenuItem(
+                                            value: 'unsafe_behavior',
+                                            child: Text('Unsafe behavior')),
+                                        DropdownMenuItem(
+                                            value: 'harassment',
+                                            child: Text('Harassment')),
+                                        DropdownMenuItem(
+                                            value: 'fraud',
+                                            child: Text('Suspected fraud')),
+                                        DropdownMenuItem(
+                                            value: 'other',
+                                            child: Text('Other concern')),
+                                      ],
+                                      validator: (value) => value == null
+                                          ? 'Choose a reason'
+                                          : null,
+                                      onChanged: _busy
+                                          ? null
+                                          : (value) =>
+                                              setState(() => _reason = value)),
+                                  const SizedBox(height: 18),
+                                  TextFormField(
+                                      controller: _details,
+                                      enabled: !_busy,
+                                      maxLines: 4,
+                                      maxLength: 2000,
+                                      decoration: const InputDecoration(
+                                          labelText: 'Details (optional)')),
+                                ])),
+                            PrimaryButton(
+                                label: 'Save report',
+                                loading: _busy,
+                                onPressed: () => _report(contact)),
+                          ],
+                        ])),
+                    const SizedBox(height: 14),
+                    DesignCard(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          const SectionTitle('Block this contact'),
+                          const Text(
+                              'Blocking prevents future matching. Existing deliveries remain available.'),
+                          const SizedBox(height: 16),
+                          if (_blocked)
+                            const InfoBand(
+                                title: 'Contact blocked', icon: Icons.block)
+                          else
+                            SecondaryButton(
+                                label: 'Block contact',
+                                onPressed:
+                                    _busy ? null : () => _block(contact)),
+                        ])),
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       LoadError(error: _error!),

@@ -1,6 +1,15 @@
+import 'deliverer/manage_orders_screen.dart';
+import 'account/sessions_screen.dart';
+import '../widgets/movetraq_brand.dart';
+import 'send/express_review_screen.dart';
+import 'orders/delivery_completion_screen.dart';
+import 'orders/confirm_receipt_screen.dart';
+import 'track/order_tracking_screen.dart';
+import 'wallet/payment_methods_screen.dart';
+import '../features/wallet/withdraw_screen.dart';
+import '../widgets/design_ui.dart';
 import 'package:flutter/material.dart';
 import '../models/misc_models.dart';
-import '../widgets/app_page.dart';
 import 'account/account_screens.dart';
 import '../features/orders/create_order_screen.dart';
 import '../features/addresses/location_search_screen.dart';
@@ -46,6 +55,12 @@ const additionalScreenRoutes = <String>[
   '/location-search',
   '/map-picker',
   '/service-choice',
+  '/express-review',
+  '/completion',
+  '/confirm-receipt',
+  '/order-tracking',
+  '/courier-support',
+  '/safety-checklist',
   '/schedule',
   '/p2p-request',
   '/p2p-requests',
@@ -84,6 +99,7 @@ const additionalScreenRoutes = <String>[
   '/delivery-evidence',
   '/evidence-upload',
   '/delivery-opportunities',
+  '/application-form',
   '/deliverer-apply',
   '/verification',
   '/verification-documents',
@@ -95,6 +111,7 @@ const additionalScreenRoutes = <String>[
   '/customer-deliveries',
   '/messages',
   '/deliverer-earnings',
+  '/manage-orders',
   '/deliverer-orders',
   '/deliverer-work-settings',
   '/p2p-ads',
@@ -121,10 +138,7 @@ Widget? additionalScreen(String? route, Object? arguments) {
       AddressEditScreen(address: arguments is SavedAddress ? arguments : null),
     '/settings' => const SettingsScreen(),
     '/security' => const SecurityScreen(),
-    '/sessions' => const FeatureListScreen(
-        title: 'Devices & sessions',
-        path: '/users/me/sessions',
-        fields: ['device', 'last_active_at']),
+    '/sessions' => const SessionsScreen(),
     '/blocked-users' => const BlockedScreen(),
     '/block-user' => FeatureFormScreen(
           title: 'Block a person',
@@ -140,11 +154,11 @@ Widget? additionalScreen(String? route, Object? arguments) {
                 kind: FieldKind.multiline, required: false)
           ]),
     '/notification-preferences' => const PreferenceScreen(
-          title: 'Notification preferences',
+          title: 'Notifications',
           group: 'notifications',
           toggles: {
             'push_enabled': 'Push notifications',
-            'email_enabled': 'Email notifications',
+            'email_enabled': 'Email receipts',
             'sms_enabled': 'SMS notifications'
           }),
     '/delivery-preferences' => const PreferenceScreen(
@@ -155,20 +169,22 @@ Widget? additionalScreen(String? route, Object? arguments) {
             'contact_before_pickup': 'Contact before pickup'
           },
           choices: {
-            'preferred_service': ['p2p', 'express', 'errand', 'big_move']
+            'preferred_service': ['p2p', 'express', 'errand', 'big_move'],
+            'preferred_contact': ['message', 'phone']
           }),
     '/display-preferences' => const PreferenceScreen(
           title: 'Display & accessibility',
           group: 'display_preferences',
           toggles: {
             'reduce_motion': 'Reduce motion',
+            'larger_text': 'Larger form text',
             'high_contrast': 'High contrast'
           },
           choices: {
             'theme': ['system', 'light', 'dark']
           }),
     '/privacy' => const PreferenceScreen(
-          title: 'Privacy',
+          title: 'Privacy & preferences',
           group: 'privacy_preferences',
           toggles: {
             'share_active_delivery_location': 'Share active delivery location',
@@ -180,6 +196,12 @@ Widget? additionalScreen(String? route, Object? arguments) {
     '/location-search' => const LocationSearchScreen(),
     '/map-picker' => const MapPickerScreen(),
     '/service-choice' => const ServiceChoiceScreen(),
+    '/express-review' => const ExpressReviewScreen(),
+    '/completion' => DeliveryCompletionScreen(orderId: id),
+    '/confirm-receipt' => ConfirmReceiptScreen(orderId: id),
+    '/order-tracking' => OrderTrackingScreen(orderId: id),
+    '/courier-support' => const SupportScreen(safety: true),
+    '/safety-checklist' => const SafetyChecklistScreen(),
     '/schedule' => const ScheduleScreen(),
     '/p2p-request' => BookingScreen(
         service: 'p2p',
@@ -193,30 +215,9 @@ Widget? additionalScreen(String? route, Object? arguments) {
     '/transactions' => const TransactionsScreen(),
     '/transaction-detail' => TransactionDetailScreen(
         transaction: arguments is WalletTransaction ? arguments : null),
-    '/payment-methods' => const FeatureListScreen(
-        title: 'Payment methods',
-        path: '/payments/methods',
-        createRoute: '/add-payment-method',
-        fields: ['brand', 'last4']),
-    '/add-payment-method' =>
-      const AppPage(title: 'Add a payment method', children: [
-        InfoBand(
-            title: 'Secure card setup unavailable',
-            body:
-                'Card details must be collected by the payment provider. Card setup is not connected yet.',
-            icon: Icons.credit_card)
-      ]),
-    '/withdraw' => const FeatureFormScreen(
-          title: 'Withdraw earnings',
-          action: 'Review withdrawal',
-          path: '/payouts',
-          review: true,
-          dangerous: true,
-          fields: [
-            FormFieldSpec('amountMinor', 'Amount (NGN)', kind: FieldKind.money),
-            FormFieldSpec('bankCode', 'Bank code'),
-            FormFieldSpec('accountNumber', 'Account number')
-          ]),
+    '/payment-methods' => const PaymentMethodsScreen(),
+    '/add-payment-method' => const AddPaymentMethodScreen(),
+    '/withdraw' => const WithdrawScreen(),
     '/payouts' => const PayoutScreen(),
     '/membership' => const MembershipScreen(),
     '/support' => const SupportScreen(),
@@ -227,14 +228,19 @@ Widget? additionalScreen(String? route, Object? arguments) {
     '/support-case' =>
       SupportCaseScreen(ticket: arguments is SupportTicket ? arguments : null),
     '/delivery-problem' => FeatureFormScreen(
-          title: 'Report a delivery problem',
-          action: 'Send report',
+          title: 'Delivery problem',
+          subtitle:
+              'Describe what went wrong so the delivery can be resolved or returned.',
+          intro: const DesignNote(
+              title: 'Let us sort out this delivery',
+              body: 'Keep the item safe while you agree the next step.'),
+          action: 'Report delivery problem',
           path: '/support/cases',
           fixedValues: {
             'orderId': id
           },
           fields: const [
-            FormFieldSpec('category', 'Problem', options: [
+            FormFieldSpec('category', 'What went wrong?', options: [
               'recipient_unreachable',
               'incorrect_address',
               'damaged_parcel',
@@ -245,7 +251,7 @@ Widget? additionalScreen(String? route, Object? arguments) {
               'sender_issue',
               'other'
             ]),
-            FormFieldSpec('description', 'What happened?',
+            FormFieldSpec('description', 'Tell us what happened',
                 kind: FieldKind.multiline, minLength: 3)
           ]),
     '/return-request' => FeatureFormScreen(
@@ -279,6 +285,8 @@ Widget? additionalScreen(String? route, Object? arguments) {
         fields: const ['recipient_name', 'captured_at']),
     '/evidence-upload' => PrivateUploadScreen(entityId: id),
     '/delivery-opportunities' => const DeliveryOpportunitiesScreen(),
+    '/application-form' =>
+      const DelivererApplicationScreen(startImmediately: true),
     '/deliverer-apply' => const DelivererApplicationScreen(),
     '/verification' ||
     '/application-status' =>
@@ -292,15 +300,19 @@ Widget? additionalScreen(String? route, Object? arguments) {
     '/customer-deliveries' => PastCustomersScreen(customerId: id),
     '/messages' => const MessagesScreen(),
     '/deliverer-earnings' => const DEarningsScreen(),
+    '/manage-orders' => const ManageOrdersScreen(),
     '/deliverer-orders' => const DTripsScreen(),
     '/deliverer-work-settings' => const PreferenceScreen(
-          title: 'Work preferences',
+          title: 'Delivery work preferences',
+          work: true,
           group: 'delivery_preferences',
           toggles: {
             'p2p': 'P2P deliveries',
             'express': 'Express deliveries',
             'errand': 'Errands',
-            'big_move': 'Big moves'
+            'big_move': 'Big moves',
+            'new_job_alerts': 'New job alerts',
+            'pickup_reminders': 'Pickup reminders'
           },
           choices: {
             'transport': [
@@ -316,20 +328,28 @@ Widget? additionalScreen(String? route, Object? arguments) {
     '/p2p-ads' => const BrowseAdsScreen(),
     '/my-p2p-ads' => const AdsScreen(),
     '/create-p2p-ad' || '/edit-p2p-ad' => AdFormScreen(adId: id),
-    '/verify-email' => const FeatureFormScreen(
-          title: 'Verify your email',
-          action: 'Verify email',
-          path: '/auth/verify',
-          fixedValues: {
-            'type': 'signup'
-          },
-          fields: [
-            FormFieldSpec('email', 'Email address', kind: FieldKind.email),
-            FormFieldSpec('token', 'Verification code', kind: FieldKind.code)
-          ]),
-    '/password-recovery' => const FeatureFormScreen(
-          title: 'Reset password',
-          action: 'Send reset email',
+    '/verify-email' => FeatureFormScreen(
+        title: 'Confirm your email',
+        subtitle: 'Confirm the email address for your new account.',
+        intro: const Padding(
+            padding: EdgeInsets.only(bottom: 22),
+            child: Align(
+                alignment: Alignment.centerLeft,
+                child: MoveTraqMark(size: 38))),
+        initialValues: {'email': values['email'] ?? ''},
+        action: 'Verify email & continue',
+        path: '/auth/verify',
+        fixedValues: const {'type': 'signup'},
+        fields: const [
+          FormFieldSpec('email', 'Email address', kind: FieldKind.email),
+          FormFieldSpec('token', 'Verification code', kind: FieldKind.code)
+        ]),
+    '/password-recovery' =>
+      const FeatureFormScreen(
+          title: 'Forgot password?',
+          subtitle:
+              'Enter your email and we will help you reset your password.',
+          action: 'Continue',
           path: '/auth/recover',
           fields: [
             FormFieldSpec('email', 'Email address', kind: FieldKind.email)

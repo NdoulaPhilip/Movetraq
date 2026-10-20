@@ -697,6 +697,7 @@ class LocalDataService {
       category: draft.category,
       pickupAddress: draft.pickupAddress,
       dropoffAddress: draft.dropoffAddress,
+      recipientPhone: draft.recipientPhone,
       pickupLocation: draft.pickupLocation,
       dropoffLocation: draft.dropoffLocation,
       price: draft.price,

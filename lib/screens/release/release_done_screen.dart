@@ -8,6 +8,7 @@ import '../../widgets/premium_ui.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/completion_layout.dart';
 import '../../widgets/app_page.dart';
+import '../../widgets/design_ui.dart';
 
 class ReleaseDoneScreen extends StatelessWidget {
   final String orderId;
@@ -24,10 +25,25 @@ class ReleaseDoneScreen extends StatelessWidget {
           builder: (context, snap) {
             final order = snap.data;
             if (order == null) {
+              if (snap.hasError) {
+                return AppPage(
+                    title: 'Payment release',
+                    children: [LoadError(error: snap.error!)]);
+              }
+              if (snap.connectionState == ConnectionState.done) {
+                return const AppPage(
+                    title: 'Payment release',
+                    children: [InfoBand(title: 'Order unavailable')]);
+              }
               return const Center(child: CircularProgressIndicator());
             }
             if (order.status != OrderStatus.released) {
-              return const AppPage(title: 'Payment release', children: [InfoBand(title: 'Payment is not released', body: 'A confirmed server release is required before a receipt is available.')]);
+              return const AppPage(title: 'Payment release', children: [
+                InfoBand(
+                    title: 'Payment is not released',
+                    body:
+                        'A confirmed server release is required before a receipt is available.')
+              ]);
             }
 
             return CompletionLayout(
@@ -43,27 +59,29 @@ class ReleaseDoneScreen extends StatelessWidget {
                     child: const Icon(Icons.check,
                         size: 44, color: Color(0xFF678326))),
                 const SizedBox(height: 28),
-                const Text('Payment released',
+                const Text('Payment released successfully',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                         fontFamily: 'SpaceGrotesk',
                         fontWeight: FontWeight.w700,
                         fontSize: 24)),
                 const SizedBox(height: 10),
                 Text(
-                  '₦${order.price.toStringAsFixed(0)} has been released from escrow to ${order.delivererName ?? "your courier"}. Thanks for confirming your delivery!',
+                  '${naira(order.price)} has been released from escrow to ${order.delivererName ?? "your courier"}. Thanks for confirming your delivery!',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                       fontSize: 14, color: AppColors.inkSoft, height: 1.5),
                 ),
                 const SizedBox(height: 22),
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 300),
+                  constraints: const BoxConstraints(maxWidth: 266),
                   child: PremiumSurface(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
                     child: Row(
                       children: [
-                        const CircleAvatar(radius: 21, child: Icon(Icons.person_outline)),
+                        const CircleAvatar(
+                            radius: 21, child: Icon(Icons.person_outline)),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -90,7 +108,9 @@ class ReleaseDoneScreen extends StatelessWidget {
                   constraints: const BoxConstraints(maxWidth: 300),
                   child: PrimaryButton(
                     label: 'Rate your deliverer',
-                    onPressed: () => Navigator.pushNamed(context, '/rate-delivery', arguments: orderId),
+                    onPressed: () => Navigator.pushNamed(
+                        context, '/rate-delivery',
+                        arguments: orderId),
                   ),
                 ),
                 const SizedBox(height: 4),

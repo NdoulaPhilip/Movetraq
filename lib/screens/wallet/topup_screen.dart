@@ -8,6 +8,8 @@ import '../../providers/auth_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/design_ui.dart';
+import '../../theme/app_theme.dart';
 
 typedef WalletCheckout = Future<bool> Function(
     BuildContext context, CheckoutRequest request);
@@ -105,33 +107,73 @@ class _TopupScreenState extends State<TopupScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AppPage(title: 'Add money', children: [
-        const InfoBand(
-            title: 'Pay with Paystack',
-            body: 'Your wallet is credited only after server verification.',
-            icon: Icons.lock_outline),
-        Form(
-            key: _form,
-            child: TextFormField(
-                controller: _amount,
-                enabled: !_busy,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Amount (NGN)'),
-                validator: (value) => depositMinorUnits(value ?? '') == null
-                    ? 'Enter NGN 100 to NGN 1,000,000, with up to 2 decimal places.'
-                    : null)),
-        const SizedBox(height: 20),
-        if (_error != null) LoadError(error: _error!),
-        if (_notice != null)
-          InfoBand(title: _notice!, icon: Icons.hourglass_empty),
-        PrimaryButton(
-            label: 'Continue to Paystack',
-            loading: _busy,
-            onPressed: _busy ? null : _pay),
-        const RouteTile(
-            title: 'Check a payment',
-            icon: Icons.fact_check_outlined,
-            route: '/confirm-payment'),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Add money',
+          subtitle: 'Top up your wallet to fund deliveries instantly.',
+          footer: PrimaryButton(
+              label: 'Continue to Paystack',
+              loading: _busy,
+              onPressed: _busy ? null : _pay),
+          children: [
+            DesignCard(
+                dark: true,
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('AMOUNT TO ADD',
+                          style:
+                              TextStyle(fontSize: 11, color: Colors.white54)),
+                      const SizedBox(height: 12),
+                      Text(naira((depositMinorUnits(_amount.text) ?? 0) / 100),
+                          style: const TextStyle(
+                              fontSize: 34, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 14),
+                      Wrap(spacing: 8, runSpacing: 8, children: [
+                        for (final amount in [2000, 5000, 10000])
+                          ChoiceChip(
+                              label: Text(naira(amount)),
+                              selected: _amount.text == amount.toString(),
+                              selectedColor: AppColors.accent,
+                              onSelected: _busy
+                                  ? null
+                                  : (_) => setState(
+                                      () => _amount.text = amount.toString())),
+                      ]),
+                    ])),
+            const SizedBox(height: 20),
+            const InfoBand(
+                title: 'Pay with Paystack',
+                body: 'Your wallet is credited only after server verification.',
+                icon: Icons.lock_outline),
+            Form(
+                key: _form,
+                child: TextFormField(
+                    controller: _amount,
+                    onChanged: (_) => setState(() {}),
+                    enabled: !_busy,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration:
+                        const InputDecoration(labelText: 'Amount (NGN)'),
+                    validator: (value) => depositMinorUnits(value ?? '') == null
+                        ? 'Enter NGN 100 to NGN 1,000,000, with up to 2 decimal places.'
+                        : null)),
+            const SizedBox(height: 20),
+            if (_error != null) LoadError(error: _error!),
+            if (_notice != null)
+              InfoBand(title: _notice!, icon: Icons.hourglass_empty),
+            const SizedBox(height: 15),
+            const DesignNote(
+                title: 'Payment method',
+                body:
+                    'Choose a supported card or bank payment securely during checkout.'),
+            const RouteTile(
+                title: 'Manage payment methods',
+                icon: Icons.credit_card,
+                route: '/payment-methods'),
+            const RouteTile(
+                title: 'Check a payment',
+                icon: Icons.fact_check_outlined,
+                route: '/confirm-payment'),
+          ]);
 }

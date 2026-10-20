@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
+import '../../widgets/design_ui.dart';
 
 class AdsScreen extends StatefulWidget {
   const AdsScreen({super.key, this.mine = true});
@@ -76,7 +77,10 @@ class _AdsScreenState extends State<AdsScreen> {
 
   @override
   Widget build(BuildContext context) => AppPage(
-        title: widget.mine ? 'My delivery ads' : 'P2P delivery ads',
+        title: widget.mine ? 'My delivery offers' : 'P2P delivery offers',
+        subtitle: widget.mine
+            ? 'Manage your routes, fees and availability.'
+            : 'Choose an offer for your route.',
         actions: [
           IconButton(
               tooltip: 'Refresh ads',
@@ -113,39 +117,49 @@ class _AdsScreenState extends State<AdsScreen> {
                       title: 'Delivery ads could not be loaded.');
                 }
                 if (ads.isEmpty) {
-                  return const InfoBand(title: 'No delivery ads found.');
+                  return DesignNote(
+                      title: 'No delivery offers yet',
+                      body: widget.mine
+                          ? 'Create an offer with your route, fee and availability.'
+                          : 'No delivery offers are available yet. Published offers will appear here.');
                 }
                 return Column(
                     children: ads
                         .whereType<Map>()
-                        .map((ad) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                                ad['title']?.toString() ?? 'Delivery offer'),
-                            subtitle: Text(ad['status']?.toString() ??
-                                'Status unavailable'),
-                            trailing: widget.mine
-                                ? PopupMenuButton<String>(
-                                    enabled: !_busy,
-                                    tooltip: 'Ad actions',
-                                    onSelected: (action) => _action(ad, action),
-                                    itemBuilder: (_) => [
-                                          const PopupMenuItem(
-                                              value: 'edit',
-                                              child: Text('Edit')),
-                                          PopupMenuItem(
-                                              value: ad['status'] == 'paused'
-                                                  ? 'resume'
-                                                  : 'pause',
-                                              child: Text(
-                                                  ad['status'] == 'paused'
-                                                      ? 'Resume'
-                                                      : 'Pause')),
-                                          const PopupMenuItem(
-                                              value: 'delete',
-                                              child: Text('Delete')),
-                                        ])
-                                : null))
+                        .map((ad) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: DesignCard(
+                                child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(ad['title']?.toString() ??
+                                        'Delivery offer'),
+                                    subtitle: Text(ad['status']?.toString() ??
+                                        'Status unavailable'),
+                                    trailing: widget.mine
+                                        ? PopupMenuButton<String>(
+                                            enabled: !_busy,
+                                            tooltip: 'Ad actions',
+                                            onSelected: (action) =>
+                                                _action(ad, action),
+                                            itemBuilder: (_) => [
+                                                  const PopupMenuItem(
+                                                      value: 'edit',
+                                                      child: Text('Edit')),
+                                                  PopupMenuItem(
+                                                      value: ad['status'] ==
+                                                              'paused'
+                                                          ? 'resume'
+                                                          : 'pause',
+                                                      child: Text(
+                                                          ad['status'] ==
+                                                                  'paused'
+                                                              ? 'Resume'
+                                                              : 'Pause')),
+                                                  const PopupMenuItem(
+                                                      value: 'delete',
+                                                      child: Text('Delete')),
+                                                ])
+                                        : null))))
                         .toList());
               }),
           if (_error != null) LoadError(error: _error!)

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import 'mini_map.dart';
 import 'premium_ui.dart';
 
 class AppPage extends StatelessWidget {
@@ -30,13 +29,18 @@ class AppPage extends StatelessWidget {
       children: [
         if (!embedded) ...[
           Row(children: [
-            CircleIconButton(
-                icon: Icons.chevron_left,
-                onTap: () => Navigator.maybePop(context)),
+            IconButton.outlined(
+                tooltip: 'Back',
+                style: IconButton.styleFrom(
+                    side: const BorderSide(color: AppColors.cardBorder),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13))),
+                icon: const Icon(Icons.chevron_left, size: 22),
+                onPressed: () => Navigator.maybePop(context)),
             const Spacer(),
             ...actions,
           ]),
-          const SizedBox(height: 22),
+          const SizedBox(height: 12),
         ],
         PremiumHeader(
             title: title,

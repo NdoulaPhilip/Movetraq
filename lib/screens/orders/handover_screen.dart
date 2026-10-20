@@ -6,6 +6,7 @@ import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/design_ui.dart';
 
 class HandoverScreen extends StatefulWidget {
   const HandoverScreen({super.key, required this.orderId});
@@ -67,76 +68,82 @@ class _HandoverScreenState extends State<HandoverScreen> {
       builder: (context, snapshot) {
         final order = snapshot.data;
         final uid = context.watch<AuthProvider>().profile?.uid;
-        return AppPage(title: 'Confirm handover', children: [
-          if (snapshot.hasError)
-            LoadError(error: snapshot.error!)
-          else if (order == null &&
-              snapshot.connectionState == ConnectionState.waiting)
-            const Center(child: CircularProgressIndicator())
-          else if (uid == null ||
-              order == null ||
-              order.delivererId != uid ||
-              order.status != OrderStatus.pickedUp)
-            const InfoBand(
-                title: 'Handover unavailable',
-                body:
-                    'Only the assigned deliverer can confirm an in-transit delivery.')
-          else ...[
-            const InfoBand(
-                title: 'Recipient confirmation',
-                body:
-                    'Enter the recipient code and attach any required delivery evidence. Payment remains protected until sender confirmation.',
-                icon: Icons.inventory_2_outlined),
-            Form(
-                key: _form,
-                child: Column(children: [
-                  TextFormField(
-                      controller: _name,
-                      decoration:
-                          const InputDecoration(labelText: 'Recipient name'),
-                      validator: (value) => (value ?? '').trim().length < 2
-                          ? 'Enter the recipient name'
-                          : null),
-                  const SizedBox(height: 18),
-                  TextFormField(
-                      controller: _code,
-                      obscureText: true,
-                      keyboardType: TextInputType.number,
-                      maxLength: 6,
-                      decoration: const InputDecoration(
-                          labelText: 'Recipient 6-digit code'),
-                      validator: (value) =>
-                          RegExp(r'^\d{6}$').hasMatch(value ?? '')
-                              ? null
-                              : 'Enter six digits')
-                ])),
-            const SizedBox(height: 18),
-            RouteTile(
-                title: _evidence == null
-                    ? 'Add delivery photo'
-                    : 'Delivery photo verified',
-                icon: _evidence == null
-                    ? Icons.photo_camera_outlined
-                    : Icons.check_circle_outline,
-                onTap: _busy
-                    ? null
-                    : () async {
-                        final id = await Navigator.pushNamed(
-                            context, '/evidence-upload',
-                            arguments: widget.orderId);
-                        if (mounted && id is String) {
-                          setState(() => _evidence = id);
-                        }
-                      }),
-            const SizedBox(height: 24),
-            PrimaryButton(
-                label: 'Confirm delivery', loading: _busy, onPressed: _submit),
-            RouteTile(
-                title: 'Report a problem',
-                icon: Icons.support_agent,
-                route: '/delivery-problem',
-                arguments: widget.orderId),
-          ],
-        ]);
+        return AppPage(
+            title: 'Confirm parcel handover',
+            subtitle:
+                'Record who received the parcel and confirm handover using their delivery code.',
+            children: [
+              if (snapshot.hasError)
+                LoadError(error: snapshot.error!)
+              else if (order == null &&
+                  snapshot.connectionState == ConnectionState.waiting)
+                const Center(child: CircularProgressIndicator())
+              else if (uid == null ||
+                  order == null ||
+                  order.delivererId != uid ||
+                  order.status != OrderStatus.pickedUp)
+                const InfoBand(
+                    title: 'Handover unavailable',
+                    body:
+                        'Only the assigned deliverer can confirm an in-transit delivery.')
+              else ...[
+                DesignNote(
+                    reference: order.code,
+                    title: 'Record handover details',
+                    body:
+                        'Ask the recipient for their delivery code. You can also attach a photo with their permission. Payment remains protected until sender confirmation.'),
+                Form(
+                    key: _form,
+                    child: Column(children: [
+                      TextFormField(
+                          controller: _name,
+                          decoration:
+                              const InputDecoration(labelText: 'Received by'),
+                          validator: (value) => (value ?? '').trim().length < 2
+                              ? 'Enter the recipient name'
+                              : null),
+                      const SizedBox(height: 18),
+                      TextFormField(
+                          controller: _code,
+                          obscureText: true,
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                          decoration: const InputDecoration(
+                              labelText: 'Recipient delivery code'),
+                          validator: (value) =>
+                              RegExp(r'^\d{6}$').hasMatch(value ?? '')
+                                  ? null
+                                  : 'Enter six digits')
+                    ])),
+                const SizedBox(height: 18),
+                RouteTile(
+                    title: _evidence == null
+                        ? 'Add delivery photo'
+                        : 'Delivery photo verified',
+                    icon: _evidence == null
+                        ? Icons.photo_camera_outlined
+                        : Icons.check_circle_outline,
+                    onTap: _busy
+                        ? null
+                        : () async {
+                            final id = await Navigator.pushNamed(
+                                context, '/evidence-upload',
+                                arguments: widget.orderId);
+                            if (mounted && id is String) {
+                              setState(() => _evidence = id);
+                            }
+                          }),
+                const SizedBox(height: 24),
+                PrimaryButton(
+                    label: 'Confirm handover and finish',
+                    loading: _busy,
+                    onPressed: _submit),
+                RouteTile(
+                    title: 'Report a problem',
+                    icon: Icons.support_agent,
+                    route: '/delivery-problem',
+                    arguments: widget.orderId),
+              ],
+            ]);
       });
 }

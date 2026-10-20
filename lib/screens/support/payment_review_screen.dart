@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/design_ui.dart';
 
 class PaymentReviewScreen extends StatefulWidget {
   const PaymentReviewScreen({super.key, required this.orderId});
@@ -59,59 +60,65 @@ class _PaymentReviewScreenState extends State<PaymentReviewScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Request a payout review', children: [
-        StreamBuilder<ParcelOrder?>(
-            stream: _order,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return LoadError(error: snapshot.error!);
-              if (!snapshot.hasData &&
-                  snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final order = snapshot.data;
-              if (order == null) {
-                return const InfoBand(
-                    title: 'Open a delivery to request a payment review.');
-              }
-              if (_sent) {
-                return const InfoBand(
-                    title: 'Payment review requested',
-                    body: 'Follow your request in Help & support.',
-                    icon: Icons.check_circle_outline);
-              }
-              return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InfoBand(
-                        title: 'Need help with your payment?',
-                        body: '${order.code} / ${order.title}',
-                        icon: Icons.account_balance_wallet_outlined),
-                    DetailRow('Payment status', order.status.name),
-                    Form(
-                        key: _form,
-                        child: TextFormField(
-                            controller: _description,
-                            enabled: !_busy,
-                            maxLines: 5,
-                            maxLength: 2000,
-                            decoration: const InputDecoration(
-                                labelText: 'Tell us what happened'),
-                            validator: (value) =>
-                                (value ?? '').trim().length < 3
-                                    ? 'Describe why payment needs review'
-                                    : null)),
-                    const SizedBox(height: 18),
-                    if (_error != null) LoadError(error: _error!),
-                    PrimaryButton(
-                        label: 'Request payment review',
-                        loading: _busy,
-                        onPressed: () => _submit(order)),
-                  ]);
-            }),
-        const RouteTile(
-            title: 'Contact support',
-            icon: Icons.support_agent,
-            route: '/support'),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Request a payout review',
+          subtitle:
+              'Request a review of a pending delivery payment and add relevant details.',
+          children: [
+            StreamBuilder<ParcelOrder?>(
+                stream: _order,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return LoadError(error: snapshot.error!);
+                  }
+                  if (!snapshot.hasData &&
+                      snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final order = snapshot.data;
+                  if (order == null) {
+                    return const InfoBand(
+                        title: 'Open a delivery to request a payment review.');
+                  }
+                  if (_sent) {
+                    return const InfoBand(
+                        title: 'Payment review requested',
+                        body: 'Follow your request in Help & support.',
+                        icon: Icons.check_circle_outline);
+                  }
+                  return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DesignNote(
+                            reference: order.code,
+                            title: 'Need help with your payment?',
+                            body:
+                                'Explain why payment needs review. Include when the item arrived and any contact attempts.'),
+                        DetailRow('Payment status', order.status.name),
+                        Form(
+                            key: _form,
+                            child: TextFormField(
+                                controller: _description,
+                                enabled: !_busy,
+                                maxLines: 5,
+                                maxLength: 2000,
+                                decoration: const InputDecoration(
+                                    labelText: 'Tell us what happened'),
+                                validator: (value) =>
+                                    (value ?? '').trim().length < 3
+                                        ? 'Describe why payment needs review'
+                                        : null)),
+                        const SizedBox(height: 18),
+                        if (_error != null) LoadError(error: _error!),
+                        PrimaryButton(
+                            label: 'Request payment review',
+                            loading: _busy,
+                            onPressed: () => _submit(order)),
+                      ]);
+                }),
+            const RouteTile(
+                title: 'Contact support',
+                icon: Icons.support_agent,
+                route: '/support'),
+          ]);
 }

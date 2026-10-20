@@ -5,12 +5,15 @@ import '../services/local_data_service.dart';
 
 /// Only provider-returned road geometry is drawable as a delivery route.
 class ProviderRoute extends StatefulWidget {
-  const ProviderRoute(
-      {super.key,
-      required this.pickup,
-      required this.destination,
-      this.topPadding = 0,
-      required this.builder});
+  const ProviderRoute({
+    super.key,
+    required this.pickup,
+    required this.destination,
+    this.topPadding = 0.0,
+    required this.builder,
+  });
+
+  /// Keeps route information below the tracking screen's header.
   final double topPadding;
   final LatLng? pickup, destination;
   final Widget Function(List<LatLng> points, Map<String, dynamic>? metrics,

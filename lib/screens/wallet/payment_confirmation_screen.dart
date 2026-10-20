@@ -1,3 +1,4 @@
+import '../../widgets/design_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -59,10 +60,10 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
   @override
   Widget build(BuildContext context) =>
       AppPage(title: 'Confirm payment', children: [
-        const InfoBand(
-            title: 'Check your payment',
-            body: 'Use the reference from your payment checkout.',
-            icon: Icons.receipt_long_outlined),
+        const DesignNote(
+          title: 'Check your payment',
+          body: 'Use the reference from your payment checkout.',
+        ),
         Form(
             key: _form,
             child: TextFormField(

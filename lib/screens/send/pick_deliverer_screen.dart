@@ -4,7 +4,7 @@ import '../../models/app_user.dart';
 import '../../providers/send_flow_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
-import '../../widgets/premium_ui.dart';
+import '../../widgets/design_ui.dart';
 import '../../widgets/primary_button.dart';
 
 class PickDelivererScreen extends StatefulWidget {
@@ -14,9 +14,8 @@ class PickDelivererScreen extends StatefulWidget {
 }
 
 class _PickDelivererScreenState extends State<PickDelivererScreen> {
-  String _query = '';
-  String _sort = 'All';
-  late Stream<List<AppUser>> _stream;
+  String _query = '', _sort = 'All deliverers';
+  late final Stream<List<AppUser>> _stream;
   @override
   void initState() {
     super.initState();
@@ -24,98 +23,114 @@ class _PickDelivererScreenState extends State<PickDelivererScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Choose a deliverer', children: [
-        TextField(
-            decoration: const InputDecoration(
-                hintText: 'Name or transport', prefixIcon: Icon(Icons.search)),
-            onChanged: (value) => setState(() => _query = value.toLowerCase())),
-        const SizedBox(height: 14),
-        Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: ['All', 'Top rated', 'Nearest', 'Lowest price']
-                .map((value) => ChoiceChip(
-                    label: Text(value),
-                    selected: value == _sort,
-                    onSelected: (_) => setState(() => _sort = value)))
-                .toList()),
-        const SizedBox(height: 18),
-        StreamBuilder<List<AppUser>>(
-            stream: _stream,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return LoadError(error: snapshot.error!);
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final peers = snapshot.data!
-                  .where((user) => '${user.name} ${user.vehicleType}'
-                      .toLowerCase()
-                      .contains(_query))
-                  .toList();
-              if (_sort == 'Top rated') {
-                peers.sort((a, b) => b.rating.compareTo(a.rating));
-              }
-              if (_sort == 'Nearest') {
-                peers.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
-              }
-              if (_sort == 'Lowest price') {
-                peers.sort((a, b) => a.rate.compareTo(b.rate));
-              }
-              if (peers.isEmpty) {
-                return const PremiumEmptyState(
-                    icon: Icons.person_outline,
+  Widget build(BuildContext context) => StreamBuilder<List<AppUser>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        final peers = (snapshot.data ?? [])
+            .where((peer) => '${peer.name} ${peer.vehicleType}'
+                .toLowerCase()
+                .contains(_query))
+            .toList();
+        switch (_sort) {
+          case 'Top rated':
+            peers.sort((a, b) => b.rating.compareTo(a.rating));
+          case 'Closest to pickup':
+            peers.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+          case 'Lowest price':
+            peers.sort((a, b) => a.rate.compareTo(b.rate));
+        }
+        return AppPage(
+            title: 'Choose your deliverer',
+            subtitle: snapshot.hasData
+                ? '${peers.length} available deliverers'
+                : null,
+            children: [
+              TextField(
+                  decoration: const InputDecoration(
+                      hintText: 'Name or vehicle',
+                      prefixIcon: Icon(Icons.search)),
+                  onChanged: (value) =>
+                      setState(() => _query = value.toLowerCase())),
+              const SizedBox(height: 14),
+              SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    for (final filter in [
+                      'All deliverers',
+                      'Top rated',
+                      'Closest to pickup',
+                      'Lowest price'
+                    ])
+                      Padding(
+                          padding: const EdgeInsets.only(right: 7),
+                          child: ChoiceChip(
+                              label: Text(filter),
+                              selected: _sort == filter,
+                              showCheckmark: false,
+                              onSelected: (_) =>
+                                  setState(() => _sort = filter))),
+                  ])),
+              const SizedBox(height: 17),
+              if (snapshot.hasError)
+                LoadError(error: snapshot.error!)
+              else if (!snapshot.hasData)
+                const Center(child: CircularProgressIndicator())
+              else if (peers.isEmpty)
+                const DesignNote(
                     title: 'No deliverers available',
-                    body: '');
-              }
-              return Column(children: [
-                for (final peer in peers)
-                  Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: PremiumSurface(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                            Row(children: [
-                              CircleAvatar(child: Text(peer.initials)),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                  child: Text(peer.name,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w600))),
-                              if (peer.verified)
-                                const Tooltip(
-                                    message: 'Verified',
-                                    child:
-                                        Icon(Icons.verified_outlined, size: 20))
-                            ]),
-                            const SizedBox(height: 12),
-                            DetailRow('Transport', peer.vehicleType),
-                            DetailRow(
-                                'Rating',
-                                peer.totalDeliveries == 0
-                                    ? 'Not rated yet'
-                                    : '${peer.rating.toStringAsFixed(1)} / ${peer.totalDeliveries} deliveries'),
-                            if (peer.distanceKm > 0)
-                              DetailRow('Distance',
-                                  '${peer.distanceKm.toStringAsFixed(1)} km'),
-                            if (peer.etaMinutes > 0)
-                              DetailRow('Estimated arrival',
-                                  '${peer.etaMinutes} min'),
-                            if (peer.rate > 0)
-                              DetailRow('Delivery rate',
-                                  'NGN ${peer.rate.toStringAsFixed(2)}'),
-                            const SizedBox(height: 12),
-                            PrimaryButton(
-                                label: 'Select deliverer',
-                                onPressed: () {
-                                  context
-                                      .read<SendFlowProvider>()
-                                      .pickDeliverer(peer.uid, peer.name);
-                                  Navigator.pushNamed(context, '/negotiate');
-                                }),
-                          ])))
-              ]);
-            }),
-      ]);
+                    body: 'Try another search or check back shortly.')
+              else
+                for (final peer in peers) ...[
+                  DesignCard(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Row(children: [
+                          DesignAvatar(peer.name),
+                          const SizedBox(width: 11),
+                          Expanded(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                Text(peer.name,
+                                    style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 5),
+                                Text(
+                                    peer.totalDeliveries == 0
+                                        ? 'Not rated yet'
+                                        : '★ ${peer.rating.toStringAsFixed(1)} · ${peer.totalDeliveries} trips',
+                                    style: const TextStyle(fontSize: 11)),
+                              ])),
+                          if (peer.rate > 0)
+                            Text(naira(peer.rate),
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w700)),
+                        ]),
+                        const SizedBox(height: 13),
+                        Wrap(spacing: 7, runSpacing: 7, children: [
+                          if (peer.verified)
+                            const DesignBadge('Verified profile'),
+                          DesignBadge(peer.vehicleType),
+                          if (peer.distanceKm > 0)
+                            DesignBadge(
+                                '${peer.distanceKm.toStringAsFixed(1)} km'),
+                          if (peer.etaMinutes > 0)
+                            DesignBadge('~${peer.etaMinutes} min'),
+                        ]),
+                        const SizedBox(height: 14),
+                        PrimaryButton(
+                            label: 'Select ${peer.name.split(' ').first} →',
+                            onPressed: () {
+                              context
+                                  .read<SendFlowProvider>()
+                                  .pickDeliverer(peer.uid, peer.name);
+                              Navigator.pushNamed(context, '/negotiate');
+                            }),
+                      ])),
+                  const SizedBox(height: 12),
+                ],
+            ]);
+      });
 }

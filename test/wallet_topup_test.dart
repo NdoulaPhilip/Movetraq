@@ -100,7 +100,7 @@ void main() {
     final data = _Data();
     await _open(tester, data, checkout: true);
     await _pay(tester, '100');
-    expect(find.text('Add money'), findsOneWidget);
+    expect(find.byType(TopupScreen), findsOneWidget);
     expect(find.textContaining('Payment is not confirmed'), findsOneWidget);
   });
   testWidgets(
@@ -110,7 +110,7 @@ void main() {
     await _open(tester, data, checkout: true);
     await _pay(tester, '100');
     expect(find.text('Wallet'), findsOneWidget);
-    expect(find.text('Add money'), findsNothing);
+    expect(find.byType(TopupScreen), findsNothing);
     expect(find.text('Payment verified. Your wallet has been credited.'),
         findsOneWidget);
   });

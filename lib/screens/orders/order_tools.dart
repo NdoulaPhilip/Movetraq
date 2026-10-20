@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/app_user.dart';
+import 'order_overview.dart';
 import '../../models/parcel_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/call_service.dart';
@@ -13,6 +14,7 @@ import '../../widgets/app_page.dart';
 import '../../widgets/mini_map.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/delivery_progress.dart';
+import '../../widgets/design_ui.dart';
 
 String orderStatusLabel(OrderStatus status) => switch (status) {
       OrderStatus.pendingOffer => 'Awaiting deliverer',
@@ -42,11 +44,16 @@ class OrderToolsScreen extends StatelessWidget {
           final sender = uid != null && order?.senderId == uid;
           final driver = uid != null && order?.delivererId == uid;
           return AppPage(
-              title: completed
+              title: (completed ||
+                      driver &&
+                          [OrderStatus.delivered, OrderStatus.released]
+                              .contains(order?.status))
                   ? 'Delivery summary'
                   : receipt
-                      ? 'Order receipt'
-                      : 'Delivery details',
+                      ? 'Order confirmed'
+                      : driver
+                          ? 'Delivery details'
+                          : 'Order details',
               children: [
                 if (snapshot.hasError)
                   LoadError(error: snapshot.error!)
@@ -59,44 +66,18 @@ class OrderToolsScreen extends StatelessWidget {
                       body: 'Open a delivery from your orders to continue.',
                       icon: Icons.info_outline)
                 else ...[
-                  if (driver) DeliveryProgress(status: order.status),
-                  InfoBand(
-                      title: order.title,
-                      body: '${order.code} / ${orderStatusLabel(order.status)}',
-                      dark: true,
-                      icon: Icons.inventory_2_outlined),
-                  MiniMap(
-                      pickupLocation: order.pickupLocation,
-                      dropoffLocation: order.dropoffLocation,
-                      height: 170),
-                  const SizedBox(height: 18),
-                  const SectionTitle('Delivery route'),
-                  DetailRow('Pickup', order.pickupAddress),
-                  DetailRow('Destination', order.dropoffAddress),
-                  DetailRow('Customer', order.senderName),
-                  DetailRow('Deliverer', order.delivererName ?? 'Not assigned'),
-                  DetailRow('Service', order.isExpress ? 'Express' : 'P2P'),
-                  DetailRow('Created', order.createdAt.toLocal().toString()),
-                  if (order.deliveredAt != null)
-                    DetailRow(
-                        'Delivered', order.deliveredAt!.toLocal().toString()),
-                  if (order.releasedAt != null)
-                    DetailRow(
-                        'Completed', order.releasedAt!.toLocal().toString()),
-                  const SectionTitle('Payment'),
-                  DetailRow(
-                      'Order total', 'NGN ${order.price.toStringAsFixed(2)}'),
-                  DetailRow(
-                      'Payment status',
-                      order.status == OrderStatus.released
-                          ? 'Released'
-                          : order.status == OrderStatus.cancelled
-                              ? 'Cancelled'
-                              : 'Not released'),
-                  if (driver)
-                    DetailRow('Deliverer payout',
-                        'NGN ${order.payout.toStringAsFixed(2)}'),
-                  const SizedBox(height: 20),
+                  if (driver &&
+                      !completed &&
+                      ![OrderStatus.delivered, OrderStatus.released]
+                          .contains(order.status))
+                    DeliveryProgress(status: order.status),
+                  OrderOverview(
+                      order: order,
+                      driver: driver,
+                      receipt: receipt,
+                      completed: completed,
+                      statusLabel: orderStatusLabel(order.status)),
+                  const SizedBox(height: 24),
                   if (driver &&
                       [OrderStatus.accepted, OrderStatus.pickedUp]
                           .contains(order.status)) ...[
@@ -125,10 +106,23 @@ class OrderToolsScreen extends StatelessWidget {
                       onPressed: () => Navigator.pushNamed(
                           context, '/share-order',
                           arguments: orderId)),
-                  const RouteTile(
-                      title: 'Transaction records',
-                      icon: Icons.receipt_long_outlined,
-                      route: '/transactions'),
+                  const SizedBox(height: 12),
+                  SecondaryButton(
+                      label: 'Transaction records',
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/transactions')),
+                  if (receipt) ...[
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                        label: 'View all orders',
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/track-list')),
+                    const SizedBox(height: 12),
+                    SecondaryButton(
+                        label: 'Back to home',
+                        onPressed: () => Navigator.pushNamed(context, '/home')),
+                  ],
+                  const DesignSection('DELIVERY OPTIONS'),
                   RouteTile(
                       title: 'Delivery evidence',
                       icon: Icons.fact_check_outlined,
@@ -164,7 +158,7 @@ class OrderToolsScreen extends StatelessWidget {
                     PrimaryButton(
                         label: 'Confirm delivery & release payment',
                         onPressed: () => Navigator.pushNamed(
-                            context, '/release',
+                            context, '/confirm-receipt',
                             arguments: orderId)),
                   if (sender && order.status == OrderStatus.released)
                     PrimaryButton(
@@ -193,20 +187,42 @@ class ContactScreen extends StatefulWidget {
 
 class _ContactScreenState extends State<ContactScreen> {
   late Future<AppUser> _contact;
+  Stream<ParcelOrder?>? _order;
   bool _busy = false;
+  Future<void> _dial(AppUser user) async {
+    if (_busy || user.phone.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await const CallService().dial(user.phone);
+    } catch (error) {
+      if (mounted) showActionError(context, error);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _contact = context.read<LocalDataService>().orderContact(widget.orderId);
+    if (widget.call) {
+      _order = context.read<LocalDataService>().watchOrder(widget.orderId);
+    }
   }
 
   @override
   Widget build(BuildContext context) => AppPage(
         title: widget.call
-            ? 'Call customer'
+            ? context.watch<AuthProvider>().profile?.activeRole ==
+                    UserRole.deliverer
+                ? 'Call customer'
+                : 'Call courier'
             : widget.profile
                 ? 'Deliverer profile'
-                : 'Delivery contact',
+                : context.watch<AuthProvider>().profile?.activeRole ==
+                        UserRole.deliverer
+                    ? 'Contact your customer'
+                    : 'Contact your courier',
         children: [
           FutureBuilder<AppUser>(
               future: _contact,
@@ -217,51 +233,155 @@ class _ContactScreenState extends State<ContactScreen> {
                 }
                 final user = snapshot.data!;
                 return Column(children: [
-                  CircleAvatar(
-                      radius: 38,
-                      backgroundColor: AppColors.accent,
-                      child: Text(user.initials,
-                          style: const TextStyle(fontSize: 22))),
-                  const SizedBox(height: 18),
-                  Text(user.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 20)),
-                  const SizedBox(height: 12),
+                  if (!widget.profile)
+                    DesignCard(
+                        child: Column(
+                      crossAxisAlignment: widget.call
+                          ? CrossAxisAlignment.center
+                          : CrossAxisAlignment.start,
+                      children: [
+                        if (widget.call) ...[
+                          const Icon(Icons.call_outlined, size: 32),
+                          const SizedBox(height: 24),
+                        ],
+                        Text(user.name,
+                            style: const TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 12),
+                        Text(
+                            context.read<AuthProvider>().profile?.activeRole !=
+                                    UserRole.deliverer
+                                ? [
+                                    'Your courier',
+                                    user.vehicleType,
+                                    if (user.totalDeliveries > 0)
+                                      '${user.rating.toStringAsFixed(1)} rating'
+                                  ].where((part) => part.isNotEmpty).join(' · ')
+                                : 'Delivery customer',
+                            style: const TextStyle(
+                                color: AppColors.muted, height: 1.6)),
+                        if (widget.call) ...[
+                          StreamBuilder<ParcelOrder?>(
+                              stream: _order,
+                              builder: (context, snapshot) => snapshot.data ==
+                                      null
+                                  ? const SizedBox.shrink()
+                                  : Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(snapshot.data!.code,
+                                          style: const TextStyle(
+                                              color: AppColors.muted)),
+                                    )),
+                          const SizedBox(height: 16),
+                          Text(
+                              user.phone.isEmpty
+                                  ? 'Phone number unavailable'
+                                  : 'Ready to call',
+                              style: const TextStyle(color: AppColors.muted)),
+                        ],
+                      ],
+                    )),
                   if (widget.profile) ...[
-                    DetailRow('Rating', user.rating.toStringAsFixed(1)),
-                    DetailRow(
-                        'Completed deliveries', '${user.totalDeliveries}'),
-                    DetailRow('Verification',
-                        user.verified ? 'Verified' : 'Not verified'),
-                    DetailRow('Transport', user.vehicleType),
+                    DesignAvatar(user.name, radius: 48),
+                    const SizedBox(height: 18),
+                    Text(user.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 20)),
+                    const SizedBox(height: 12),
+                  ],
+                  if (widget.profile) ...[
+                    Text(user.delivererOnline ? 'Available' : 'Offline',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: user.delivererOnline
+                                ? const Color(0xFF0CB46A)
+                                : AppColors.muted)),
+                    const SizedBox(height: 22),
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                              child: DesignMetric(
+                                  value: user.totalDeliveries == 0
+                                      ? '\u2014'
+                                      : user.rating.toStringAsFixed(1),
+                                  label: 'Customer rating')),
+                          const SizedBox(width: 10),
+                          Expanded(
+                              child: DesignMetric(
+                                  value: '${user.totalDeliveries}',
+                                  label: 'Completed')),
+                        ]),
+                    const SizedBox(height: 12),
+                    DesignCard(
+                        dark: true,
+                        child: Row(children: [
+                          Container(
+                              padding: const EdgeInsets.all(13),
+                              decoration: BoxDecoration(
+                                  color: AppColors.accent,
+                                  borderRadius: BorderRadius.circular(13)),
+                              child: const Icon(Icons.verified_user_outlined,
+                                  color: AppColors.ink)),
+                          const SizedBox(width: 13),
+                          Expanded(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                Text(
+                                    user.verified
+                                        ? 'Verified profile'
+                                        : 'Verification pending',
+                                    style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                Text(user.vehicleType,
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.white54)),
+                              ])),
+                        ])),
                   ],
                   const SizedBox(height: 20),
-                  PrimaryButton(
-                      label: 'Message',
-                      onPressed: () => Navigator.pushNamed(context, '/chat',
-                          arguments: widget.orderId)),
-                  const SizedBox(height: 12),
-                  SecondaryButton(
-                      label: 'Call by phone',
-                      onPressed: _busy || user.phone.isEmpty
-                          ? null
-                          : () async {
-                              setState(() => _busy = true);
-                              try {
-                                await const CallService().dial(user.phone);
-                              } catch (error) {
-                                if (context.mounted) {
-                                  showActionError(context, error);
-                                }
-                              } finally {
-                                if (mounted) setState(() => _busy = false);
-                              }
-                            }),
+                  if (widget.call) ...[
+                    PrimaryButton(
+                        label: 'Call by phone',
+                        loading: _busy,
+                        onPressed:
+                            user.phone.isEmpty ? null : () => _dial(user)),
+                    const SizedBox(height: 12),
+                    SecondaryButton(
+                        label: 'Send a message',
+                        onPressed: () => Navigator.pushNamed(context, '/chat',
+                            arguments: widget.orderId)),
+                  ] else ...[
+                    PrimaryButton(
+                        label: widget.profile
+                            ? 'Message'
+                            : context
+                                        .read<AuthProvider>()
+                                        .profile
+                                        ?.activeRole ==
+                                    UserRole.deliverer
+                                ? 'Message customer'
+                                : 'Message courier',
+                        onPressed: () => Navigator.pushNamed(context, '/chat',
+                            arguments: widget.orderId)),
+                    const SizedBox(height: 12),
+                    SecondaryButton(
+                        label: 'Call by phone',
+                        onPressed: _busy || user.phone.isEmpty
+                            ? null
+                            : () => _dial(user)),
+                  ],
                   const SizedBox(height: 18),
-                  const InfoBand(
-                      title: 'In-app voice calls unavailable',
-                      body: 'A voice provider has not been configured.',
-                      icon: Icons.phone_disabled_outlined),
+                  Text(
+                      user.phone.isEmpty
+                          ? 'Phone calling becomes available when a contact phone number is connected.'
+                          : 'Calls open in your phone app.',
+                      style:
+                          const TextStyle(color: AppColors.muted, height: 1.6)),
                   RouteTile(
                       title: 'Block or report',
                       icon: Icons.shield_outlined,
@@ -281,33 +401,66 @@ class ShareOrderScreen extends StatelessWidget {
       stream: context.read<LocalDataService>().watchOrder(orderId),
       builder: (context, snapshot) {
         final order = snapshot.data;
-        return AppPage(title: 'Share delivery', children: [
-          if (order == null)
-            const InfoBand(
-                title: 'Open an order to share it.', icon: Icons.share_outlined)
-          else ...[
-            DetailRow('Order', order.code),
-            DetailRow('Status', orderStatusLabel(order.status)),
-            const SizedBox(height: 20),
-            PrimaryButton(
-                label: 'Copy delivery reference',
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(
-                      text:
-                          'MoveTraq ${order.code}: ${orderStatusLabel(order.status)}'));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Delivery reference copied.')));
-                  }
-                }),
-            const SizedBox(height: 18),
-            const InfoBand(
-                title: 'Public tracking links unavailable',
-                body:
-                    'Only order participants can access private delivery tracking.',
-                icon: Icons.lock_outline),
-          ],
-        ]);
+        return AppPage(
+            title: 'Share delivery',
+            subtitle:
+                'Share this delivery reference and its current status with the recipient.',
+            children: [
+              if (order == null)
+                const InfoBand(
+                    title: 'Open an order to share it.',
+                    icon: Icons.share_outlined)
+              else ...[
+                DesignCard(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      const Icon(Icons.share_outlined, size: 20),
+                      const SizedBox(height: 18),
+                      const Text('Share this delivery',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 16),
+                      Text('${order.code} / ${orderStatusLabel(order.status)}',
+                          style: const TextStyle(
+                              fontSize: 13, color: AppColors.muted)),
+                      const SizedBox(height: 14),
+                      const Text('Delivery reference',
+                          style: TextStyle(fontSize: 12)),
+                      const SizedBox(height: 8),
+                      DesignCard(
+                          color: const Color(0xFFFAFAF8),
+                          padding: const EdgeInsets.all(14),
+                          child: SelectableText(
+                              'MoveTraq ${order.code}: ${orderStatusLabel(order.status)}',
+                              style: const TextStyle(fontSize: 12))),
+                    ])),
+                const SizedBox(height: 20),
+                PrimaryButton(
+                    label: 'Copy delivery reference',
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(
+                          text:
+                              'MoveTraq ${order.code}: ${orderStatusLabel(order.status)}'));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Delivery reference copied.')));
+                      }
+                    }),
+                const SizedBox(height: 18),
+                const InfoBand(
+                    title: 'Public tracking links unavailable',
+                    body:
+                        'Only order participants can access private delivery tracking.',
+                    icon: Icons.lock_outline),
+                const SizedBox(height: 16),
+                SecondaryButton(
+                    label: 'Back to tracking',
+                    onPressed: () => Navigator.pushNamed(context, '/live',
+                        arguments: orderId)),
+              ],
+            ]);
       });
 }
 
@@ -331,56 +484,63 @@ class _RatingScreenState extends State<RatingScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'How was your delivery?', children: [
-        if (_sent)
-          const InfoBand(
-              title: 'Thank you for your review',
-              icon: Icons.check_circle_outline)
-        else ...[
-          Wrap(
-              alignment: WrapAlignment.center,
-              children: List.generate(
-                  5,
-                  (index) => IconButton(
-                      tooltip: '${index + 1} stars',
-                      icon: Icon(
-                          index < _rating ? Icons.star : Icons.star_outline,
-                          color: const Color(0xFF90AD20),
-                          size: 32),
-                      onPressed: () => setState(() => _rating = index + 1)))),
-          const SizedBox(height: 24),
-          TextField(
-              controller: _review,
-              maxLines: 4,
-              maxLength: 2000,
-              decoration:
-                  const InputDecoration(labelText: 'Tell us more (optional)')),
-          const SizedBox(height: 20),
-          if (_error != null) LoadError(error: _error!),
-          PrimaryButton(
-              label: 'Submit review',
-              loading: _busy,
-              onPressed: _rating == 0
-                  ? null
-                  : () async {
-                      setState(() => _busy = true);
-                      try {
-                        await FeatureGateway(context.read<LocalDataService>())
-                            .request('Delivery ratings', 'POST',
-                                '/orders/${widget.orderId}/ratings', body: {
-                          'rating': _rating,
-                          'review': _review.text.trim()
-                        });
-                        if (mounted) setState(() => _sent = true);
-                      } catch (error) {
-                        if (mounted) setState(() => _error = error);
-                      } finally {
-                        if (mounted) setState(() => _busy = false);
-                      }
-                    }),
-        ],
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'How was your delivery?',
+          subtitle: 'Your feedback helps make every delivery better.',
+          children: [
+            if (_sent)
+              const InfoBand(
+                  title: 'Thank you for your review',
+                  icon: Icons.check_circle_outline)
+            else ...[
+              DesignCard(
+                  child: Wrap(
+                      alignment: WrapAlignment.spaceEvenly,
+                      children: List.generate(
+                          5,
+                          (index) => IconButton(
+                              tooltip: '${index + 1} stars',
+                              icon: Icon(
+                                  index < _rating
+                                      ? Icons.star
+                                      : Icons.star_outline,
+                                  color: const Color(0xFF90AD20),
+                                  size: 32),
+                              onPressed: () =>
+                                  setState(() => _rating = index + 1))))),
+              const SizedBox(height: 24),
+              TextField(
+                  controller: _review,
+                  maxLines: 4,
+                  maxLength: 2000,
+                  decoration: const InputDecoration(
+                      labelText: 'Tell us more (optional)')),
+              const SizedBox(height: 20),
+              if (_error != null) LoadError(error: _error!),
+              PrimaryButton(
+                  label: 'Submit review',
+                  loading: _busy,
+                  onPressed: _rating == 0
+                      ? null
+                      : () async {
+                          setState(() => _busy = true);
+                          try {
+                            await FeatureGateway(
+                                    context.read<LocalDataService>())
+                                .request('Delivery ratings', 'POST',
+                                    '/orders/${widget.orderId}/ratings', body: {
+                              'rating': _rating,
+                              'review': _review.text.trim()
+                            });
+                            if (mounted) setState(() => _sent = true);
+                          } catch (error) {
+                            if (mounted) setState(() => _error = error);
+                          } finally {
+                            if (mounted) setState(() => _busy = false);
+                          }
+                        }),
+            ],
+          ]);
 }
 
 class DeliveryStageScreen extends StatefulWidget {
@@ -394,9 +554,16 @@ class DeliveryStageScreen extends StatefulWidget {
 
 class _DeliveryStageScreenState extends State<DeliveryStageScreen> {
   bool _busy = false;
+  late final Stream<ParcelOrder?> _order;
+  @override
+  void initState() {
+    super.initState();
+    _order = context.read<LocalDataService>().watchOrder(widget.orderId);
+  }
+
   @override
   Widget build(BuildContext context) => StreamBuilder<ParcelOrder?>(
-      stream: context.read<LocalDataService>().watchOrder(widget.orderId),
+      stream: _order,
       builder: (context, snapshot) {
         final order = snapshot.data;
         final uid = context.watch<AuthProvider>().profile?.uid;
@@ -405,7 +572,9 @@ class _DeliveryStageScreenState extends State<DeliveryStageScreen> {
             order?.status ==
                 (widget.dropoff ? OrderStatus.pickedUp : OrderStatus.accepted);
         return AppPage(
-            title: widget.dropoff ? 'Delivery drop-off' : 'Pickup delivery',
+            title: widget.dropoff
+                ? 'Delivery instructions'
+                : 'Pickup instructions',
             children: [
               if (snapshot.hasError)
                 LoadError(error: snapshot.error!)
@@ -417,30 +586,92 @@ class _DeliveryStageScreenState extends State<DeliveryStageScreen> {
                     title: 'Delivery unavailable', icon: Icons.info_outline)
               else ...[
                 DeliveryProgress(status: order.status),
-                InfoBand(
-                    title: order.title,
-                    body: '${order.code} / ${orderStatusLabel(order.status)}',
-                    icon: Icons.inventory_2_outlined),
-                DetailRow(
-                    widget.dropoff ? 'Drop-off address' : 'Pickup address',
-                    widget.dropoff
-                        ? order.dropoffAddress
-                        : order.pickupAddress),
-                MiniMap(
-                    pickupLocation: order.pickupLocation,
-                    dropoffLocation: order.dropoffLocation,
-                    courierLocation: order.courierLocation,
-                    height: 200),
-                RouteTile(
-                    title: 'Map & navigation',
-                    icon: Icons.navigation_outlined,
-                    route: '/d-active',
-                    arguments: order.id),
-                RouteTile(
-                    title: 'Contact customer',
-                    icon: Icons.chat_bubble_outline,
-                    route: '/delivery-contact',
-                    arguments: order.id),
+                const SizedBox(height: 20),
+                DesignCard(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(order.code, style: const TextStyle(fontSize: 12)),
+                      const SizedBox(height: 6),
+                      Text(
+                          !canAdvance
+                              ? orderStatusLabel(order.status)
+                              : widget.dropoff
+                                  ? 'Travel to the delivery address'
+                                  : 'Delivery accepted',
+                          style: const TextStyle(
+                              fontSize: 21, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 14),
+                      Text(
+                          widget.dropoff
+                              ? order.dropoffAddress
+                              : order.pickupAddress,
+                          style: const TextStyle(
+                              color: AppColors.muted, height: 1.6)),
+                      const SizedBox(height: 12),
+                      Text(naira(order.payout),
+                          style: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Text(
+                          widget.dropoff
+                              ? 'Meet the recipient, hand over the parcel and record the required delivery evidence.'
+                              : 'At pickup, check the parcel and confirm that it matches the order before marking it collected.',
+                          style: const TextStyle(
+                              color: AppColors.muted, height: 1.7)),
+                    ])),
+                const SizedBox(height: 14),
+                DesignCard(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(order.senderName,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 16),
+                      PrimaryButton(
+                          label: 'Message',
+                          onPressed: () => Navigator.pushNamed(context, '/chat',
+                              arguments: order.id)),
+                      const SizedBox(height: 10),
+                      SecondaryButton(
+                          label: 'Call customer',
+                          onPressed: () => Navigator.pushNamed(context, '/call',
+                              arguments: order.id)),
+                    ])),
+                const SizedBox(height: 18),
+                if (widget.dropoff)
+                  DesignCard(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(
+                            widget.dropoff
+                                ? 'Drop-off location'
+                                : 'Pickup location',
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 14),
+                        ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: MiniMap(
+                                pickupLocation: order.pickupLocation,
+                                dropoffLocation: order.dropoffLocation,
+                                courierLocation: order.courierLocation,
+                                height: 235)),
+                        RouteTile(
+                            title: widget.dropoff
+                                ? 'Navigate to drop-off'
+                                : 'Start journey to pickup',
+                            icon: Icons.navigation_outlined,
+                            route: '/d-active',
+                            arguments: order.id),
+                      ])),
+                if (!widget.dropoff)
+                  PrimaryButton(
+                      label: 'Start journey to pickup',
+                      onPressed: () => Navigator.pushNamed(context, '/d-active',
+                          arguments: order.id)),
                 const SizedBox(height: 18),
                 PrimaryButton(
                     label:

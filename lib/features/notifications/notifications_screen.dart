@@ -6,7 +6,7 @@ import '../../services/feature_gateway.dart';
 import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_page.dart';
-import '../../widgets/premium_ui.dart';
+import '../../widgets/design_ui.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -19,31 +19,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   String _filter = 'All';
   List<NotificationItem> _items = [];
   bool _busy = false;
+
   @override
   void initState() {
     super.initState();
+    _subscribe();
+  }
+
+  void _subscribe() {
     _stream = context
         .read<LocalDataService>()
         .watchNotifications(context.read<AuthProvider>().profile?.uid ?? '');
   }
 
-  Future<void> _read(NotificationItem item) async {
+  Future<void> _markRead([NotificationItem? item]) async {
+    if (_busy) return;
     final uid = context.read<AuthProvider>().profile?.uid;
     if (uid == null) return;
-    try {
-      await context.read<LocalDataService>().markNotificationRead(uid, item.id);
-    } catch (error) {
-      if (mounted) showActionError(context, error);
-    }
-  }
-
-  Future<void> _markAll() async {
-    if (_busy) return;
+    final pending = item == null
+        ? _items.where((item) => !item.read).toList()
+        : [if (!item.read) item];
+    if (pending.isEmpty) return;
     setState(() => _busy = true);
     try {
-      for (final item in _items.where((item) => !item.read).toList()) {
-        await _read(item);
+      final data = context.read<LocalDataService>();
+      for (final notification in pending) {
+        await data.markNotificationRead(uid, notification.id);
       }
+    } catch (error) {
+      if (mounted) showActionError(context, error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -60,10 +64,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
     setState(() => _busy = true);
     try {
-      await FeatureGateway(context.read<LocalDataService>()).request(
-          'Notification deletion',
-          'DELETE',
+      final data = context.read<LocalDataService>();
+      await FeatureGateway(data).request('Notification deletion', 'DELETE',
           id == null ? '/notifications' : '/notifications/$id');
+      await data.refreshRemoteState();
+      if (mounted) setState(_subscribe);
     } catch (error) {
       if (mounted) showActionError(context, error);
     } finally {
@@ -71,32 +76,58 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  String _time(DateTime date) {
+    final local = date.toLocal();
+    final now = DateTime.now();
+    final elapsed = now.difference(local);
+    if (elapsed.isNegative || elapsed.inMinutes < 1) return 'Just now';
+    if (elapsed.inHours < 1) return '${elapsed.inMinutes} min ago';
+    if (elapsed.inHours < 24) return '${elapsed.inHours} hours ago';
+    return shortDate(local);
+  }
+
+  (IconData, Color, Color) _appearance(String type) => switch (type) {
+        'arriving' => (Icons.near_me, AppColors.ink, AppColors.accent),
+        'payment' || 'wallet' => (
+            Icons.account_balance_wallet_outlined,
+            const Color(0xFFE5EEF9),
+            const Color(0xFF2675E8)
+          ),
+        'promo' || 'reward' || 'rewards' => (
+            Icons.card_giftcard_outlined,
+            const Color(0xFFFFF1D8),
+            const Color(0xFFDA8A0B)
+          ),
+        _ => (
+            Icons.inventory_2_outlined,
+            const Color(0xFFF0F4D9),
+            AppColors.ink
+          ),
+      };
+
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Notifications', actions: [
-        IconButton(
-            tooltip: 'Mark all read',
-            onPressed: _busy ? null : _markAll,
-            icon: const Icon(Icons.done_all)),
-        IconButton(
-            tooltip: 'Clear notifications',
-            onPressed: _busy ? null : () => _delete(null),
-            icon: const Icon(Icons.clear_all))
-      ], children: [
-        Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: ['All', 'Unread', 'Orders', 'Payments']
-                .map((value) => ChoiceChip(
-                    label: Text(value),
-                    selected: value == _filter,
-                    onSelected: (_) => setState(() => _filter = value)))
-                .toList()),
-        const SizedBox(height: 18),
-        StreamBuilder<List<NotificationItem>>(
+  Widget build(BuildContext context) => AppPage(
+        title: 'Notifications',
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Filter notifications',
+            initialValue: _filter,
+            icon: const Icon(Icons.filter_list),
+            onSelected: (value) => setState(() => _filter = value),
+            itemBuilder: (_) => ['All', 'Unread', 'Orders', 'Payments']
+                .map((value) => PopupMenuItem(value: value, child: Text(value)))
+                .toList(),
+          )
+        ],
+        children: [
+          StreamBuilder<List<NotificationItem>>(
             stream: _stream,
             builder: (context, snapshot) {
-              if (snapshot.hasError) return LoadError(error: snapshot.error!);
+              if (snapshot.hasError) {
+                return LoadError(
+                    error: snapshot.error!,
+                    onRetry: () => setState(_subscribe));
+              }
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
@@ -111,59 +142,96 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               .contains(item.type)) ||
                       (_filter == 'Payments' &&
                           ['payment', 'wallet'].contains(item.type)))
-                  .toList();
-              return Column(children: [
-                if (unread > 0)
-                  InfoBand(
-                      title: '$unread unread notifications',
-                      icon: Icons.notifications_outlined),
-                if (items.isEmpty)
-                  const PremiumEmptyState(
-                      icon: Icons.notifications_none_outlined,
-                      title: 'You are all caught up',
-                      body: ''),
-                for (final item in items)
-                  Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: PremiumSurface(
-                          color: item.read
-                              ? Colors.white
-                              : AppColors.tint['lime']!,
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(children: [
-                                  Expanded(
-                                      child: Text(item.title,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600))),
-                                  IconButton(
-                                      tooltip: 'Mark read',
-                                      onPressed: item.read || _busy
-                                          ? null
-                                          : () => _read(item),
-                                      icon: const Icon(Icons.done_outlined,
-                                          size: 18)),
-                                  IconButton(
-                                      tooltip: 'Delete notification',
-                                      onPressed:
-                                          _busy ? null : () => _delete(item.id),
-                                      icon: const Icon(Icons.delete_outline,
-                                          size: 18))
-                                ]),
-                                Text(item.body,
-                                    style: const TextStyle(
-                                        fontSize: 12, height: 1.5)),
-                                const SizedBox(height: 10),
-                                Text(item.createdAt.toLocal().toString(),
-                                    style: const TextStyle(
-                                        fontSize: 10, color: AppColors.muted)),
-                              ]))),
-              ]);
-            }),
-        const RouteTile(
-            title: 'Notification preferences',
-            icon: Icons.tune,
-            route: '/notification-preferences'),
-      ]);
+                  .toList()
+                ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+              return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 12,
+                        children: [
+                          Text('$unread unread',
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppColors.muted)),
+                          TextButton(
+                              onPressed: _busy || unread == 0
+                                  ? null
+                                  : () => _markRead(),
+                              child: const Text('Mark all read')),
+                          TextButton(
+                              onPressed: _busy || _items.isEmpty
+                                  ? null
+                                  : () => _delete(null),
+                              child: const Text('Clear all')),
+                        ]),
+                    if (_filter != 'All')
+                      Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: DesignBadge(_filter)),
+                    const SizedBox(height: 18),
+                    if (items.isEmpty)
+                      DesignNote(
+                          title: _filter == 'All'
+                              ? 'You are all caught up'
+                              : 'No ${_filter.toLowerCase()} notifications',
+                          body:
+                              'Delivery, payment and account updates will appear here.'),
+                    for (final item in items) ...[
+                      _notification(item),
+                      const SizedBox(height: 12),
+                    ],
+                  ]);
+            },
+          ),
+          const RouteTile(
+              title: 'Notification preferences',
+              icon: Icons.tune,
+              route: '/notification-preferences'),
+        ],
+      );
+
+  Widget _notification(NotificationItem item) {
+    final (icon, background, foreground) = _appearance(item.type);
+    return DesignCard(
+        color: item.read ? const Color(0xFFFAFBF7) : Colors.white,
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                  color: background, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: foreground, size: 21)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(item.title,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text(item.body,
+                    style: const TextStyle(
+                        fontSize: 13, height: 1.6, color: AppColors.muted)),
+                const SizedBox(height: 8),
+                Text(_time(item.createdAt),
+                    style:
+                        const TextStyle(fontSize: 11, color: AppColors.muted)),
+                if (!item.read)
+                  TextButton(
+                      style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          alignment: Alignment.centerLeft),
+                      onPressed: _busy ? null : () => _markRead(item),
+                      child: const Text('Mark read')),
+              ])),
+          IconButton(
+              tooltip: 'Delete notification',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : () => _delete(item.id),
+              icon: const Icon(Icons.close, size: 19, color: AppColors.muted)),
+        ]));
+  }
 }

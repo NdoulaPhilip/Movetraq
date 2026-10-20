@@ -4,7 +4,7 @@ import '../../models/parcel_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/local_data_service.dart';
 import '../../widgets/app_page.dart';
-import '../../widgets/premium_ui.dart';
+import '../../widgets/design_ui.dart';
 import '../orders/order_tools.dart';
 
 class DTripsScreen extends StatefulWidget {
@@ -14,55 +14,69 @@ class DTripsScreen extends StatefulWidget {
 }
 
 class _DTripsScreenState extends State<DTripsScreen> {
-  String _filter = 'Active';
+  String _filter = 'All';
+  String? _uid;
+  Stream<List<ParcelOrder>>? _orders;
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'My delivery orders', children: [
-        Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: ['Active', 'Completed', 'Cancelled']
-                .map((value) => ChoiceChip(
-                    label: Text(value),
-                    selected: value == _filter,
-                    onSelected: (_) => setState(() => _filter = value)))
-                .toList()),
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final uid = context.watch<AuthProvider>().profile?.uid;
+    if (_orders == null || uid != _uid) {
+      _uid = uid;
+      _orders = uid == null
+          ? Stream.value([])
+          : context.read<LocalDataService>().watchDelivererOrders(uid);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(title: 'My trips', children: [
+        Wrap(spacing: 7, runSpacing: 7, children: [
+          for (final filter in ['All', 'Active', 'Completed', 'Cancelled'])
+            ChoiceChip(
+                label: Text(filter),
+                selected: _filter == filter,
+                onSelected: (_) => setState(() => _filter = filter)),
+        ]),
         const SizedBox(height: 18),
         StreamBuilder<List<ParcelOrder>>(
-            stream: context.read<LocalDataService>().watchDelivererOrders(
-                context.read<AuthProvider>().profile?.uid ?? ''),
+            key: ValueKey(_uid),
+            stream: _orders,
             builder: (context, snapshot) {
               if (snapshot.hasError) return LoadError(error: snapshot.error!);
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               final orders = snapshot.data!
-                  .where((order) => _filter == 'Active'
-                      ? ![OrderStatus.released, OrderStatus.cancelled]
-                          .contains(order.status)
-                      : _filter == 'Completed'
-                          ? order.status == OrderStatus.released
-                          : order.status == OrderStatus.cancelled)
-                  .toList();
-              if (orders.isEmpty) {
-                return const PremiumEmptyState(
-                    icon: Icons.local_shipping_outlined,
-                    title: 'No deliveries here yet',
-                    body: '');
-              }
+                  .where((order) => switch (_filter) {
+                        'Active' => ![
+                            OrderStatus.released,
+                            OrderStatus.cancelled
+                          ].contains(order.status),
+                        'Completed' => order.status == OrderStatus.released,
+                        'Cancelled' => order.status == OrderStatus.cancelled,
+                        _ => true,
+                      })
+                  .toList()
+                ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
               return Column(children: [
+                if (orders.isEmpty)
+                  const DesignNote(
+                      title: 'No deliveries here yet',
+                      body: 'Your trips will appear here.'),
                 for (final order in orders)
-                  RouteTile(
-                      title: order.title,
-                      subtitle:
-                          '${order.code} - ${orderStatusLabel(order.status)}',
-                      icon: Icons.inventory_2_outlined,
-                      route: order.status == OrderStatus.accepted
-                          ? '/delivery-pickup'
-                          : order.status == OrderStatus.pickedUp
-                              ? '/delivery-dropoff'
-                              : '/delivery-summary',
-                      arguments: order.id)
+                  DesignOrderCard(
+                      order: order,
+                      driver: true,
+                      status: orderStatusLabel(order.status),
+                      onTap: () => Navigator.pushNamed(
+                          context,
+                          order.status == OrderStatus.accepted
+                              ? '/delivery-pickup'
+                              : order.status == OrderStatus.pickedUp
+                                  ? '/delivery-dropoff'
+                                  : '/delivery-summary',
+                          arguments: order.id)),
               ]);
             }),
       ]);

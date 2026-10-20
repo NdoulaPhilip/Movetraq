@@ -1,5 +1,6 @@
 import java.util.Base64
 import java.util.Properties
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -43,11 +44,29 @@ android {
             }
             ?.toMap()
             ?: emptyMap()
+        // Use only the client key already bundled for this Android package.
+        // Server-side Maps credentials must never be copied into the APK.
+        val googleServicesFile = file("google-services.json")
+        val googleClients = if (googleServicesFile.exists()) {
+            (JsonSlurper().parse(googleServicesFile) as? Map<*, *>)?.get("client") as? List<*>
+        } else null
+        val androidClient = googleClients?.filterIsInstance<Map<*, *>>()?.firstOrNull { client ->
+            val info = client["client_info"] as? Map<*, *>
+            val androidInfo = info?.get("android_client_info") as? Map<*, *>
+            androidInfo?.get("package_name") == applicationId
+        }
+        val clientApiKey = (androidClient?.get("api_key") as? List<*>)
+            ?.filterIsInstance<Map<*, *>>()
+            ?.mapNotNull { it["current_key"] as? String }
+            ?.firstOrNull { it.isNotBlank() }
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
-            dartDefines["GOOGLE_MAPS_API_KEY"]
-                ?: localProperties.getProperty("GOOGLE_MAPS_API_KEY")
-                ?: (project.findProperty("GOOGLE_MAPS_API_KEY") as String?)
-                ?: System.getenv("GOOGLE_MAPS_API_KEY")
+            listOf(
+                dartDefines["GOOGLE_MAPS_API_KEY"],
+                localProperties.getProperty("GOOGLE_MAPS_API_KEY"),
+                project.findProperty("GOOGLE_MAPS_API_KEY") as String?,
+                System.getenv("GOOGLE_MAPS_API_KEY"),
+                clientApiKey,
+            ).firstNotNullOfOrNull { it?.trim()?.takeIf(String::isNotEmpty) }
                 ?: ""
     }
 

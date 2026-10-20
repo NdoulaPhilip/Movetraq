@@ -7,6 +7,9 @@ import '../../services/local_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_page.dart';
 import '../../widgets/mini_map.dart';
+import '../../widgets/design_ui.dart';
+import '../../models/parcel_order.dart';
+import '../../screens/orders/order_tools.dart' show orderStatusLabel;
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.orderId});
@@ -19,6 +22,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _text = TextEditingController();
   late Future<AppUser> _contact;
   late Stream<List<ChatMessage>> _messages;
+  late Stream<ParcelOrder?> _order;
   bool _busy = false;
   @override
   void initState() {
@@ -26,6 +30,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final data = context.read<LocalDataService>();
     _contact = data.orderContact(widget.orderId);
     _messages = data.watchMessages(widget.orderId);
+    _order = data.watchOrder(widget.orderId);
   }
 
   @override
@@ -68,47 +73,76 @@ class _ChatScreenState extends State<ChatScreen> {
                 icon: Icons.chevron_left,
                 onTap: () => Navigator.maybePop(context)),
             const SizedBox(width: 12),
-            Expanded(
-                child: FutureBuilder<AppUser>(
-                    future: _contact,
-                    builder: (context, snapshot) => Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                  snapshot.data?.name ??
-                                      'Delivery conversation',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15)),
-                              const SizedBox(height: 4),
-                              Text(
-                                  snapshot.hasError
-                                      ? 'Contact unavailable'
-                                      : widget.orderId,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                            ]))),
+            const Expanded(
+                child: Text('Delivery chat',
+                    style:
+                        TextStyle(fontSize: 24, fontWeight: FontWeight.w700))),
             IconButton(
                 tooltip: 'Call contact',
                 icon: const Icon(Icons.call_outlined),
                 onPressed: () => Navigator.pushNamed(context, '/call',
                     arguments: widget.orderId)),
             PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz),
                 tooltip: 'Conversation actions',
                 onSelected: (value) => Navigator.pushNamed(context, value,
                     arguments: widget.orderId),
                 itemBuilder: (_) => const [
                       PopupMenuItem(
                           value: '/delivery-summary',
-                          child: Text('Delivery details')),
+                          child: Text('Manage order')),
                       PopupMenuItem(
                           value: '/safety-reporting',
                           child: Text('Block or report'))
                     ]),
           ])),
-      const Divider(height: 1, color: AppColors.borderSoft),
+      Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: DesignCard(
+              child: FutureBuilder<AppUser>(
+                  future: _contact,
+                  builder: (context, snapshot) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                                spacing: 12,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text(
+                                      snapshot.data?.name ??
+                                          'Delivery conversation',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 15)),
+                                  TextButton(
+                                      onPressed: () => Navigator.pushNamed(
+                                          context, '/delivery-summary',
+                                          arguments: widget.orderId),
+                                      child: const Text('Manage order')),
+                                ]),
+                            const SizedBox(height: 4),
+                            Text(
+                                snapshot.hasError
+                                    ? 'Contact unavailable'
+                                    : 'Delivery conversation',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 11, color: AppColors.muted)),
+                            StreamBuilder<ParcelOrder?>(
+                                stream: _order,
+                                builder: (context, order) => order.data == null
+                                    ? const SizedBox.shrink()
+                                    : Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Text(
+                                            '${order.data!.title} / ${orderStatusLabel(order.data!.status)}',
+                                            style: const TextStyle(
+                                                color: AppColors.muted,
+                                                fontSize: 12)),
+                                      )),
+                          ])))),
+      const SizedBox(height: 8),
       Expanded(
           child: StreamBuilder<List<ChatMessage>>(
               stream: _messages,
@@ -140,14 +174,16 @@ class _ChatScreenState extends State<ChatScreen> {
                               ? Alignment.centerRight
                               : Alignment.centerLeft,
                           child: Container(
-                              constraints: const BoxConstraints(maxWidth: 280),
+                              constraints: BoxConstraints(
+                                  maxWidth:
+                                      MediaQuery.sizeOf(context).width * .8),
                               margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(13),
+                              padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
                                   color: mine
-                                      ? AppColors.tint['lime']
-                                      : AppColors.tint['mint'],
-                                  borderRadius: BorderRadius.circular(12)),
+                                      ? const Color(0xFFEAF3CA)
+                                      : const Color(0xFFF1F3EB),
+                                  borderRadius: BorderRadius.circular(20)),
                               child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   mainAxisSize: MainAxisSize.min,
@@ -179,14 +215,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     maxLines: 4,
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _send(),
-                    decoration: const InputDecoration(hintText: 'Message...'))),
+                    decoration: const InputDecoration(
+                        hintText: 'Message...', filled: false))),
             const SizedBox(width: 8),
             IconButton.filled(
                 tooltip: 'Send message',
                 onPressed: _busy ? null : _send,
                 style: IconButton.styleFrom(
-                    backgroundColor: AppColors.ink,
-                    foregroundColor: AppColors.accent),
+                    padding: const EdgeInsets.all(16),
+                    backgroundColor: const Color(0xFFEAF9B2),
+                    foregroundColor: AppColors.ink),
                 icon: _busy
                     ? const SizedBox(
                         width: 18,

@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import '../../providers/send_flow_provider.dart';
 import '../../widgets/app_page.dart';
+import '../../widgets/design_ui.dart';
+import '../../theme/app_theme.dart';
 import '../../widgets/primary_button.dart';
 
 class ParcelPhotoScreen extends StatefulWidget {
@@ -35,38 +37,55 @@ class _ParcelPhotoScreenState extends State<ParcelPhotoScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      AppPage(title: 'Parcel photo', children: [
-        if (_photo == null)
-          const InfoBand(title: 'No photo selected', icon: Icons.photo_outlined)
-        else
-          ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.memory(_photo!, height: 280, fit: BoxFit.contain)),
-        const SizedBox(height: 18),
-        RouteTile(
-            title: 'Choose from gallery',
-            icon: Icons.photo_library_outlined,
-            onTap: _busy ? null : () => _pick(ImageSource.gallery)),
-        RouteTile(
-            title: 'Take a photo',
-            icon: Icons.camera_alt_outlined,
-            onTap: _busy ? null : () => _pick(ImageSource.camera)),
-        const SizedBox(height: 20),
-        PrimaryButton(
-            label: 'Use this photo',
-            loading: _busy,
-            onPressed: _photo == null
-                ? null
-                : () {
-                    final flow = context.read<SendFlowProvider>();
-                    if (flow.parcelPhotos.length >= 4) {
-                      showActionError(context,
-                          StateError('A parcel can have at most four photos.'));
-                      return;
-                    }
-                    flow.addParcelPhoto(_photo!);
-                    Navigator.pop(context);
-                  }),
-      ]);
+  Widget build(BuildContext context) => AppPage(
+          title: 'Parcel photo',
+          subtitle: 'Add a photo so your courier knows what to collect.',
+          children: [
+            if (_photo == null)
+              const DesignCard(
+                  child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 32),
+                child: Column(children: [
+                  Icon(Icons.add_photo_alternate_outlined,
+                      size: 44, color: AppColors.muted),
+                  SizedBox(height: 16),
+                  Text('Your parcel photo will appear here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.muted)),
+                ]),
+              ))
+            else
+              DesignCard(
+                  child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(_photo!,
+                          height: 280, fit: BoxFit.contain))),
+            const SizedBox(height: 18),
+            RouteTile(
+                title: 'Choose from gallery',
+                icon: Icons.photo_library_outlined,
+                onTap: _busy ? null : () => _pick(ImageSource.gallery)),
+            RouteTile(
+                title: 'Take a photo',
+                icon: Icons.camera_alt_outlined,
+                onTap: _busy ? null : () => _pick(ImageSource.camera)),
+            const SizedBox(height: 20),
+            PrimaryButton(
+                label: 'Use this photo',
+                loading: _busy,
+                onPressed: _photo == null
+                    ? null
+                    : () {
+                        final flow = context.read<SendFlowProvider>();
+                        if (flow.parcelPhotos.length >= 4) {
+                          showActionError(
+                              context,
+                              StateError(
+                                  'A parcel can have at most four photos.'));
+                          return;
+                        }
+                        flow.addParcelPhoto(_photo!);
+                        Navigator.pop(context);
+                      }),
+          ]);
 }
