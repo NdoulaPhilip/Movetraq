@@ -30,6 +30,10 @@ class DelivererAccessScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       AppPage(title: 'Delivery access', children: [
+        if (context.watch<AuthProvider>().approvalErrorMessage != null)
+          LoadError(
+              error: context.watch<AuthProvider>().approvalErrorMessage!,
+              onRetry: () => context.read<AuthProvider>().refreshApproval()),
         InfoBand(
             title: 'Approval is required for delivery work.',
             body: context

@@ -18,6 +18,7 @@ declare a jsonb; app uuid; doc uuid; decision_id uuid; result jsonb; native publ
   admin_id uuid:='18000000-0000-4000-8000-000000000001'; sender_id uuid:='18000000-0000-4000-8000-000000000003';
 begin
   a:=public.mobile_deliverer_command('user_workflow','start',input);app:=(a->>'id')::uuid;
+  begin perform public.mobile_deliverer_preferences('user_workflow',null);raise exception 'Unapproved preferences access';exception when insufficient_privilege then null;end;
   if a->>'status'<>'not_started' or exists(select 1 from public.notifications where data->>'applicationId'=app::text) then raise exception 'Draft incorrectly submitted or notified';end if;
   begin
     perform public.mobile_deliverer_command('user_workflow','submit',jsonb_build_object('applicationId',app));
@@ -52,7 +53,16 @@ begin
   perform public.review_deliverer_application(admin_id,app,'approved','Identity verified');
   result:=public.mobile_deliverer_command('user_workflow','status','{}');
   if result->>'status'<>'approved' or not (result->>'canDeliver')::boolean or jsonb_array_length(result->'notifications')<>2 then raise exception 'Approval or applicant notification missing';end if;
+  result:=public.mobile_deliverer_preferences('user_workflow','{"p2p":false,"express":true,"delivery_area":"Yaba","transport":"walking"}');
+  result:=public.mobile_deliverer_preferences('user_workflow','{"pickup_reminders":false}');
+  if result#>>'{delivery_preferences,delivery_area}'<>'Yaba' or (result#>>'{delivery_preferences,p2p}')::boolean or not (result#>>'{delivery_preferences,express}')::boolean then raise exception 'Preferences not merged and persisted';end if;
+  if (select status from public.verification_applications where id=app)<>'approved' then raise exception 'Preferences changed approval';end if;
+  begin perform public.mobile_deliverer_preferences('user_another','{"p2p":true}');raise exception 'Another owner preferences access';exception when insufficient_privilege then null;end;
+  begin perform public.mobile_deliverer_preferences('user_workflow','{"transport":"car"}');raise exception 'Unverified transport allowed';exception when sqlstate 'P0001' then if sqlerrm='Unverified transport allowed' then raise;end if;end;
+  begin perform public.mobile_deliverer_preferences('user_workflow','{"status":"approved"}');raise exception 'Approval field allowed';exception when invalid_parameter_value then null;end;
+  if has_function_privilege('authenticated','public.mobile_deliverer_preferences(text,jsonb)','EXECUTE') or has_column_privilege('authenticated','public.verification_applications','work_preferences','UPDATE') then raise exception 'Direct preferences write allowed';end if;
   perform public.review_deliverer_application(admin_id,app,'suspended','Additional safety review');
+  begin perform public.mobile_deliverer_preferences('user_workflow','{"p2p":true}');raise exception 'Suspended preferences update';exception when insufficient_privilege then null;end;
   begin perform public.mobile_deliverer_command('user_workflow','start',input);raise exception 'Suspension bypass';exception when insufficient_privilege then null;end;
   -- An administrator cannot approve a linked mobile account with their own email.
   input:=jsonb_set(input,'{accountEmail}','"WORKFLOW-ADMIN@example.test"');

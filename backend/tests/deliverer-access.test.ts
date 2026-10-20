@@ -4,6 +4,23 @@ const {DelivererAccess,mergeVerificationNotifications}=createRequire(import.meta
 const account=()=>({uid:'user_fixture',email:'sender@example.test',verified:true,activeRole:'deliverer',delivererOnline:true});
 const authority=(state:unknown)=>new DelivererAccess({origin:'https://authority.example.test',secret:'private-test-service-token',request:vi.fn(async()=>new Response(JSON.stringify({success:true,data:state}))) });
 describe('legacy deliverer approval enforcement',()=>{
+  it('retries transient approval reads and never retries application mutations',async()=>{
+    const request=vi.fn().mockRejectedValueOnce(new Error('Connection reset')).mockResolvedValueOnce(new Response(JSON.stringify({success:true,data:{status:'approved',canDeliver:true}})));
+    const access=new DelivererAccess({origin:'https://authority.example.test',secret:'fixture',request});
+    await expect(access.requireApproved(account())).resolves.toMatchObject({status:'approved'});
+    expect(request).toHaveBeenCalledTimes(2);
+    const mutate=vi.fn().mockRejectedValue(new Error('Connection reset'));
+    await expect(new DelivererAccess({origin:'https://authority.example.test',secret:'fixture',request:mutate}).command(account(),'submit',{})).rejects.toMatchObject({status:503});
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
+  it('does not retry permission denials or convert outages into approval',async()=>{
+    const request=vi.fn(async()=>new Response(JSON.stringify({success:false,error:{message:'Forbidden'}}),{status:403}));
+    await expect(new DelivererAccess({origin:'https://authority.example.test',secret:'fixture',request}).requireApproved(account())).rejects.toMatchObject({status:403});
+    expect(request).toHaveBeenCalledTimes(1);
+    const offline=vi.fn().mockRejectedValue(new Error('Offline'));
+    await expect(new DelivererAccess({origin:'https://authority.example.test',secret:'fixture',request:offline}).requireApproved(account())).rejects.toMatchObject({status:503});
+    expect(offline).toHaveBeenCalledTimes(2);
+  });
   it('imports review notifications once and preserves read state across polls',()=>{
     const event={id:'18000000-0000-4000-8000-000000000001',type:'verification_update',title:'Application rejected',body:'Please upload a clear identity document',created_at:'2026-10-20T10:00:00Z',read_at:null};
     const first=mergeVerificationNotifications([],{notifications:[event]});

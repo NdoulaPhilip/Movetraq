@@ -26,7 +26,7 @@ const fixtures = vi.hoisted(() => {
 
 vi.mock('../src/config/env.js', () => ({
   // Exercise the optional provider's unconfigured path without external requests.
-  env: { MAPS_PROVIDER: 'google', NODE_ENV: 'test', LOG_LEVEL: 'silent', AUTH_REDIRECT_URL: 'movetraq://auth/callback',ADMIN_INVITE_REDIRECT_URL:'http://localhost:5173/accept-invitation' },
+  env: { MONITORING_SERVICE_TOKEN:'isolated-private-service-test-token',MAPS_PROVIDER: 'google', NODE_ENV: 'test', LOG_LEVEL: 'silent', AUTH_REDIRECT_URL: 'movetraq://auth/callback',ADMIN_INVITE_REDIRECT_URL:'http://localhost:5173/accept-invitation' },
   corsOrigins: ['http://localhost:5173'],
 }));
 vi.mock('../src/config/supabase.js', () => ({
@@ -42,7 +42,7 @@ async function request(path: string, method = 'GET', body?: unknown, authorizati
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authorization) headers.Authorization = authorization;
   if (key) headers['Idempotency-Key'] = key;
-  const response = await fetch(`${baseUrl}/api/v1${path}`, {
+  const response = await fetch(`${baseUrl}${path.startsWith('/internal/')?'':'/api/v1'}${path}`, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
@@ -73,6 +73,18 @@ beforeEach(() => {
 });
 
 describe('account API security and persistence contract', () => {
+  it('protects the work preferences bridge and validates owner and preference fields',async()=>{
+    const input={userId:'user_fixture',command:'update_preferences',input:{delivery_preferences:{p2p:true,delivery_area:'Yaba'}}};
+    expect((await request('/internal/mobile-deliverer','POST',input)).status).toBe(401);
+    const token='Bearer isolated-private-service-test-token';
+    expect((await request('/internal/mobile-deliverer','POST',input,token)).status).toBe(200);
+    expect(fixtures.rpc).toHaveBeenCalledWith('mobile_deliverer_preferences',{p_user:'user_fixture',p_patch:{p2p:true,delivery_area:'Yaba'}});
+    for(const patch of [{status:'approved'},{p2p:'true'},{delivery_area:'x'.repeat(201)},{userId:'victim'}]){
+      expect((await request('/internal/mobile-deliverer','POST',{...input,input:{delivery_preferences:patch}},token)).status).toBe(400);
+    }
+    expect((await request('/internal/mobile-deliverer','POST',{userId:'user_fixture',command:'preferences'},token)).status).toBe(200);
+    expect(fixtures.rpc).toHaveBeenLastCalledWith('mobile_deliverer_preferences',{p_user:'user_fixture',p_patch:null});
+  });
   it.each([
     ['Self approval is prohibited','SELF_REVIEW_FORBIDDEN','different authorized reviewer'],
     ['Verification review permission required','VERIFICATION_REVIEW_FORBIDDEN','active Verification Agent'],

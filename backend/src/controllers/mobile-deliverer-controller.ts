@@ -8,11 +8,21 @@ import { ApiError } from '../utils/api-error.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { ok } from '../utils/responses.js';
 import { applicationSchema,documentSchema } from '../validators/delivery.js';
-const envelope=z.object({userId:z.string().regex(/^user_[A-Za-z0-9_-]{1,120}$/),command:z.enum(['status','start','reserve','confirm','submit','read_notification']),input:z.record(z.string(),z.unknown()).default({})}).strict();
+const envelope=z.object({userId:z.string().regex(/^user_[A-Za-z0-9_-]{1,120}$/),command:z.enum(['status','start','reserve','confirm','submit','read_notification','preferences','update_preferences']),input:z.record(z.string(),z.unknown()).default({})}).strict();
+const workPreferences=z.object({
+  p2p:z.boolean().optional(),express:z.boolean().optional(),errand:z.boolean().optional(),big_move:z.boolean().optional(),
+  new_job_alerts:z.boolean().optional(),pickup_reminders:z.boolean().optional(),
+  delivery_area:z.string().trim().max(200).optional(),
+  transport:z.enum(['walking','bicycle','motorcycle','car','van','other_motor','other_non_motor']).optional(),
+}).strict().refine(value=>Object.keys(value).length>0,'Provide work preferences.');
 export const mobileDeliverer=asyncHandler(async(req,res)=>{
   const supplied=Buffer.from(req.header('authorization')??'');const expected=Buffer.from(`Bearer ${env.MONITORING_SERVICE_TOKEN??''}`);
   if(!env.MONITORING_SERVICE_TOKEN||supplied.length!==expected.length||!timingSafeEqual(supplied,expected))throw new ApiError(401,'SERVICE_AUTH_REQUIRED','Service authentication required.');
   const {userId,command,input}=envelope.parse(req.body);let args:Record<string,unknown>=input;
+  if(command==='preferences'||command==='update_preferences'){
+    const patch=command==='preferences'?null:z.object({delivery_preferences:workPreferences}).strict().parse(input).delivery_preferences;
+    ok(res,await deliveryRpc('mobile_deliverer_preferences',{p_user:userId,p_patch:patch}));return;
+  }
   if(command==='start'){
     const {accountEmail,...application}=input;
     args={...applicationSchema.parse(application),accountEmail:z.string().email().parse(accountEmail)};

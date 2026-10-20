@@ -4,6 +4,9 @@ import { ApiError } from '../utils/api-error.js';
 
 export function deliveryError(error: { code?: string; message?: string } | null) {
   if (!error) return;
+  if (error.code === '42501' && error.message === 'Approved deliverer required for work preferences') {
+    throw new ApiError(403, 'DELIVERER_APPROVAL_REQUIRED', 'Administrator approval is required before configuring delivery work preferences.');
+  }
   if (error.code === '42501' && error.message === 'Self approval is prohibited') {
     throw new ApiError(403, 'SELF_REVIEW_FORBIDDEN', 'You cannot review your own deliverer application. Sign in with a different authorized reviewer account.');
   }

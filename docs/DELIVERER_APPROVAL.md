@@ -129,3 +129,30 @@ The repository contains isolated PostgreSQL, HTTP, Flutter widget, upload
 contract, and admin browser tests. These validate permissions and transitions
 without inserting production fixtures. A real applicant must supply their own
 legitimate documents for the final device acceptance check.
+
+## Work preferences and approval refresh
+
+Apply `0019_deliverer_work_preferences.sql` after 0018 before releasing the
+preferences connection. The rollout helper checks the new schema before deployment.
+The existing mobile preferences URL is used with `?scope=work` for GET/PATCH.
+The authenticated mobile API binds the legacy user ID and calls the existing
+private authority bridge; its service-only `mobile_deliverer_preferences` RPC
+checks current approval and stores configuration on the reviewed application.
+No Supabase Auth identity is fabricated for a mobile account. Existing RLS and
+client column restrictions remain in place, and pending/rejected/suspended
+accounts cannot access work preferences. Transport stays tied to the verified
+application; preferences cannot grant approval or change identity information.
+
+Flutter loads preferences before enabling save, confirms the server response,
+and offers a retry after a failed load or save. Work preferences include service
+choices, delivery area and notification settings; saving them does not enable
+new push/SMS providers. Sender preferences are a separate existing feature.
+
+Approval refresh runs at sign-in, every 20 seconds, and when the app resumes.
+Same-account profile events update the profile without restarting the polling
+timer. Failed approval checks restrict delivery access while preserving sender
+access and expose a retry on the delivery access screen. Only read-only status
+calls receive one bounded retry for transient bridge failures; application
+submissions and other mutations are never blindly replayed. Sanitized bridge
+failure logs record the command, reason and retry state without tokens or user
+identities.

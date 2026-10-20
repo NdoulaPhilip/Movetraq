@@ -59,6 +59,11 @@ if (mode === 'deploy') {
   });
   await schema.body?.cancel();
   if (!schema.ok) throw new Error('Apply Supabase migrations 0017 and 0018 before deploying the approval workflow. No deployment triggered.');
+  const preferences = await fetch(`${env.SUPABASE_URL}/rest/v1/verification_applications?select=work_preferences&limit=0`, {
+    headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:`Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`},signal:AbortSignal.timeout(30000),redirect:'error',
+  });
+  await preferences.body?.cancel();
+  if(!preferences.ok)throw new Error('Apply Supabase migration 0019 before deploying work preferences. No deployment triggered.');
 }
 for (const service of services) {
   const history = await api(`/services/${service.id}/deploys?limit=3`);

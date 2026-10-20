@@ -1,16 +1,17 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../models/app_user.dart';
 import '../services/local_data_service.dart';
 
 enum AuthStatus { unknown, signedOut, signedIn }
 
-class AuthProvider extends ChangeNotifier {
+class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   final LocalDataService _data;
 
   AuthProvider(this._data) {
+    WidgetsBinding.instance.addObserver(this);
     _authSub = _data.authStateChanges.listen(_onAuthChanged);
     // No stored session in this local-only build, so start signed out.
     status = AuthStatus.signedOut;
@@ -26,16 +27,30 @@ class AuthProvider extends ChangeNotifier {
   Timer? _approvalTimer;
   bool _checkingApproval = false;
   bool _disposed = false;
+  String? approvalErrorMessage;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(refreshApproval());
+  }
+
   Future<void> refreshApproval() async {
     if (_checkingApproval || profile == null) return;
     final owner = profile!.uid;
     _checkingApproval = true;
     try {
       await _data.delivererAccess();
-    } catch (_) {
       if (!_disposed && profile?.uid == owner) {
-        profile =
-            profile!.copyWith(canDeliver: false, activeRole: UserRole.sender);
+        approvalErrorMessage = null;
+        notifyListeners();
+      }
+    } catch (error) {
+      if (!_disposed && profile?.uid == owner) {
+        approvalErrorMessage = _friendlyError(error);
+        profile = profile!.copyWith(
+            canDeliver: false,
+            verified: false,
+            delivererVerificationStatus: 'unavailable',
+            activeRole: UserRole.sender);
         notifyListeners();
       }
     } finally {
@@ -44,15 +59,25 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void _onAuthChanged(AppUser? user) {
+    if (user != null &&
+        profile?.uid == user.uid &&
+        status == AuthStatus.signedIn) {
+      profile = user;
+      notifyListeners();
+      return;
+    }
     _approvalTimer?.cancel();
     _profileSub?.cancel();
     if (user == null) {
       status = AuthStatus.signedOut;
       profile = null;
+      approvalErrorMessage = null;
       notifyListeners();
       return;
     }
     status = AuthStatus.signedIn;
+    profile = user;
+    approvalErrorMessage = null;
     _approvalTimer =
         Timer.periodic(const Duration(seconds: 20), (_) => refreshApproval());
     _profileSub = _data.profileStream(user.uid).listen((p) {
@@ -60,6 +85,7 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
     });
     notifyListeners();
+    unawaited(refreshApproval());
   }
 
   Future<bool> _guard(Future<void> Function() action) async {
@@ -163,6 +189,7 @@ class AuthProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _authSub?.cancel();
     _profileSub?.cancel();
     _approvalTimer?.cancel();

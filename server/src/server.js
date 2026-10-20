@@ -28,7 +28,7 @@ function loadEnvFile() {
 }
 
 loadEnvFile();
-const delivererAccess = new DelivererAccess({origin:process.env.DELIVERER_AUTHORITY_URL||'https://movetraq-production-api.onrender.com',secret:process.env.MONITORING_SERVICE_TOKEN});
+const delivererAccess = new DelivererAccess({origin:process.env.DELIVERER_AUTHORITY_URL||'https://movetraq-production-api.onrender.com',secret:process.env.MONITORING_SERVICE_TOKEN,onFailure:event=>console.error(JSON.stringify(event))});
 
 const mobileMaps = new MobileMaps({origin:process.env.DELIVERER_AUTHORITY_URL||'https://movetraq-production-api.onrender.com',secret:process.env.MONITORING_SERVICE_TOKEN});
 
@@ -703,6 +703,10 @@ async function handleRequest(req, res) {
 
     const user = requireAuth(req, res);
     if (!user) return;
+    if(path==='/api/v1/users/me/preferences'&&url.searchParams.get('scope')==='work'&&['GET','PATCH'].includes(req.method)){
+      const result=await delivererAccess.command(user,req.method==='GET'?'preferences':'update_preferences',req.method==='GET'?{}:body);
+      json(res,200,{success:true,data:result});return;
+    }
     if(req.method==='GET'&&path==='/deliverer-access'){
       const state=await delivererAccess.command(user,'status');const previous=JSON.stringify(user);await delivererAccess.profile(user,state);
       const inbox=notifications.get(user.uid)||[];

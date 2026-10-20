@@ -22,7 +22,9 @@ class FeatureGateway {
                 .hasMatch(path) ||
             RegExp(r'^/verification-documents/[0-9a-fA-F-]{36}/confirm$')
                 .hasMatch(path);
-    if (!enabled && !verification) {
+    final workPreferences = path == '/users/me/preferences?scope=work' &&
+        (method == 'GET' || method == 'PATCH');
+    if (!enabled && !verification && !workPreferences) {
       return Future.error(FeatureUnavailable(feature));
     }
     return data.extendedRequest(method, path, body: body);

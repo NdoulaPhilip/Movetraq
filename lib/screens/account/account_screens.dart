@@ -616,6 +616,7 @@ class _PreferenceScreenState extends State<PreferenceScreen> {
   bool _busy = false;
   Object? _error;
   late Future<void> _load;
+  bool _loaded = false;
   @override
   void initState() {
     super.initState();
@@ -623,17 +624,25 @@ class _PreferenceScreenState extends State<PreferenceScreen> {
   }
 
   Future<void> _fetch() async {
+    _loaded = false;
+    _error = null;
     try {
-      final result = await FeatureGateway(context.read<LocalDataService>())
-          .request(
+      final result =
+          await FeatureGateway(context.read<LocalDataService>()).request(
               widget.title,
               'GET',
               widget.group == 'notifications'
                   ? '/users/me/notification-preferences'
-                  : '/users/me/preferences');
+                  : widget.work
+                      ? '/users/me/preferences?scope=work'
+                      : '/users/me/preferences');
       final saved =
           widget.group == 'notifications' ? result : result[widget.group];
+      if (widget.work && saved is! Map<String, dynamic>) {
+        throw StateError('Work preferences could not be loaded. Please retry.');
+      }
       if (saved is Map<String, dynamic>) _values.addAll(saved);
+      _loaded = true;
       if (mounted && widget.group == 'display_preferences') {
         final uid = context.read<AuthProvider>().profile?.uid;
         if (uid != null) {
@@ -642,23 +651,39 @@ class _PreferenceScreenState extends State<PreferenceScreen> {
       }
     } catch (error) {
       _error = error;
+    } finally {
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _save() async {
-    if (_busy) return;
+    if (_busy || !_loaded) return;
     setState(() => _busy = true);
     try {
-      await FeatureGateway(context.read<LocalDataService>()).request(
-          widget.title,
-          'PATCH',
-          widget.group == 'notifications'
-              ? '/users/me/notification-preferences'
-              : '/users/me/preferences',
-          body: widget.group == 'notifications'
-              ? _values
-              : {widget.group: _values});
+      final result = await FeatureGateway(context.read<LocalDataService>())
+          .request(
+              widget.title,
+              'PATCH',
+              widget.group == 'notifications'
+                  ? '/users/me/notification-preferences'
+                  : widget.work
+                      ? '/users/me/preferences?scope=work'
+                      : '/users/me/preferences',
+              body: widget.group == 'notifications'
+                  ? _values
+                  : {widget.group: _values});
+      if (widget.work) {
+        final saved = result[widget.group];
+        if (saved is! Map<String, dynamic>) {
+          throw StateError(
+              'Work preferences were not confirmed. Please retry.');
+        }
+        _values
+          ..clear()
+          ..addAll(saved);
+      }
       if (mounted) {
+        setState(() => _error = null);
         if (widget.group == 'display_preferences') {
           final uid = context.read<AuthProvider>().profile?.uid;
           if (uid != null) {
@@ -701,99 +726,140 @@ class _PreferenceScreenState extends State<PreferenceScreen> {
                       'Save your preferences to update your delivery workspace.'),
             FutureBuilder<void>(
                 future: _load,
-                builder: (context, snapshot) => DesignCard(
-                        child: Column(children: [
-                      for (final entry in widget.choices.entries)
-                        Padding(
-                            padding: const EdgeInsets.only(bottom: 18),
-                            child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                initialValue:
-                                    entry.value.contains(_values[entry.key])
-                                        ? _values[entry.key] as String
-                                        : null,
-                                decoration: InputDecoration(
-                                    labelText: switch (entry.key) {
-                                  'preferred_service' => 'Default service',
-                                  'preferred_contact' =>
-                                    'Preferred contact method',
-                                  _ => entry.key.replaceAll('_', ' ')
-                                }),
-                                items: entry.value
-                                    .map((item) => DropdownMenuItem(
-                                        value: item, child: Text(item)))
-                                    .toList(),
-                                onChanged: (value) => setState(
-                                    () => _values[entry.key] = value))),
-                      if (widget.work &&
-                          snapshot.connectionState == ConnectionState.done)
-                        Padding(
-                            padding: const EdgeInsets.only(bottom: 18),
-                            child: TextFormField(
-                                initialValue:
-                                    _values['delivery_area']?.toString() ?? '',
-                                decoration: const InputDecoration(
-                                    labelText: 'Delivery area'),
-                                onChanged: (value) =>
-                                    _values['delivery_area'] = value.trim())),
-                      for (final entry in widget.toggles.entries)
-                        SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(entry.value,
-                                style: const TextStyle(
-                                    fontSize: 13, fontWeight: FontWeight.w600)),
-                            subtitle: switch (entry.key) {
-                              'new_job_alerts' => const Text(
-                                  'Notify me about delivery requests',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'pickup_reminders' => const Text(
-                                  'Remind me about upcoming pickups',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'reduce_motion' => const Text(
-                                  'Reduce sliding and delivery animations',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'larger_text' => const Text(
-                                  'Increase text size in forms and detail cards',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'scheduled_reminders' => const Text(
-                                  'Remind me before a scheduled pickup',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'push_enabled' => const Text(
-                                  'Updates while you are on the move',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'email_enabled' => const Text(
-                                  'Payments and delivery summaries',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'share_active_delivery_location' => const Text(
-                                  'Your preference for active delivery tracking',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              'marketing_consent' => const Text(
-                                  'Occasional offers and product updates',
-                                  style: TextStyle(
-                                      fontSize: 11, color: AppColors.muted)),
-                              _ => null,
-                            },
-                            value: _values[entry.key] == true,
-                            onChanged: (value) =>
-                                setState(() => _values[entry.key] = value)),
-                    ]))),
+                builder: (context, snapshot) => snapshot.connectionState !=
+                        ConnectionState.done
+                    ? const DesignCard(
+                        child: Center(child: CircularProgressIndicator()))
+                    : !_loaded
+                        ? const DesignCard(
+                            child: Text(
+                                'Preferences could not be loaded. Retry before making changes.'))
+                        : DesignCard(
+                            child: Column(children: [
+                            for (final entry in widget.choices.entries)
+                              Padding(
+                                  padding: const EdgeInsets.only(bottom: 18),
+                                  child: DropdownButtonFormField<String>(
+                                      isExpanded: true,
+                                      initialValue: entry.value
+                                              .contains(_values[entry.key])
+                                          ? _values[entry.key] as String
+                                          : null,
+                                      decoration: InputDecoration(
+                                          helperText: widget.work &&
+                                                  entry.key == 'transport'
+                                              ? 'Verified transport. Changes require application review.'
+                                              : null,
+                                          labelText: switch (entry.key) {
+                                            'preferred_service' =>
+                                              'Default service',
+                                            'preferred_contact' =>
+                                              'Preferred contact method',
+                                            _ => entry.key.replaceAll('_', ' ')
+                                          }),
+                                      items: entry.value
+                                          .map((item) => DropdownMenuItem(
+                                              value: item, child: Text(item)))
+                                          .toList(),
+                                      onChanged: !_loaded ||
+                                              _busy ||
+                                              (widget.work &&
+                                                  entry.key == 'transport')
+                                          ? null
+                                          : (value) => setState(() =>
+                                              _values[entry.key] = value))),
+                            if (widget.work &&
+                                snapshot.connectionState ==
+                                    ConnectionState.done)
+                              Padding(
+                                  padding: const EdgeInsets.only(bottom: 18),
+                                  child: TextFormField(
+                                      initialValue: _values['delivery_area']
+                                              ?.toString() ??
+                                          '',
+                                      decoration: const InputDecoration(
+                                          labelText: 'Delivery area'),
+                                      onChanged: (value) =>
+                                          _values['delivery_area'] =
+                                              value.trim())),
+                            for (final entry in widget.toggles.entries)
+                              SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(entry.value,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: switch (entry.key) {
+                                    'new_job_alerts' => const Text(
+                                        'Notify me about delivery requests',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'pickup_reminders' => const Text(
+                                        'Remind me about upcoming pickups',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'reduce_motion' => const Text(
+                                        'Reduce sliding and delivery animations',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'larger_text' => const Text(
+                                        'Increase text size in forms and detail cards',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'scheduled_reminders' => const Text(
+                                        'Remind me before a scheduled pickup',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'push_enabled' => const Text(
+                                        'Updates while you are on the move',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'email_enabled' => const Text(
+                                        'Payments and delivery summaries',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    'share_active_delivery_location' =>
+                                      const Text(
+                                          'Your preference for active delivery tracking',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: AppColors.muted)),
+                                    'marketing_consent' => const Text(
+                                        'Occasional offers and product updates',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.muted)),
+                                    _ => null,
+                                  },
+                                  value: _values[entry.key] == true,
+                                  onChanged: !_loaded || _busy
+                                      ? null
+                                      : (value) => setState(
+                                          () => _values[entry.key] = value)),
+                          ]))),
             const SizedBox(height: 18),
             if (widget.group == 'privacy_preferences')
               const DesignNote(
                   title: 'You control your location',
                   body:
                       'Device location and address lookups use connected services. Live delivery sharing requires your consent for an active delivery.'),
-            if (_error != null) LoadError(error: _error!),
+            if (_error != null)
+              LoadError(
+                  error: _error!,
+                  onRetry: () => setState(() {
+                        _load = _fetch();
+                      })),
             PrimaryButton(
-                label: 'Save preferences', loading: _busy, onPressed: _save),
+                label: 'Save preferences',
+                loading: _busy,
+                onPressed: _loaded ? _save : null),
             if (widget.work) ...[
               const SizedBox(height: 12),
               SecondaryButton(

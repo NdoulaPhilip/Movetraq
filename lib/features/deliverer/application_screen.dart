@@ -330,7 +330,8 @@ class VerificationScreen extends StatefulWidget {
   State<VerificationScreen> createState() => _VerificationScreenState();
 }
 
-class _VerificationScreenState extends State<VerificationScreen> {
+class _VerificationScreenState extends State<VerificationScreen>
+    with WidgetsBindingObserver {
   late Future<Map<String, dynamic>> _future;
   bool _busy = false;
   String _id = '';
@@ -350,6 +351,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
     _statusTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted && !_busy) setState(_load);
@@ -358,6 +360,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _statusTimer?.cancel();
     super.dispose();
   }
@@ -367,6 +370,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
       _id = state['id']?.toString() ?? '';
       return state;
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted && !_busy) {
+      setState(_load);
+    }
   }
 
   @override

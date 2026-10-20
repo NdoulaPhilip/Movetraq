@@ -11,8 +11,13 @@ beforeAll(async()=>{
   const socket=createServer();await new Promise<void>(resolve=>socket.listen(0,'127.0.0.1',resolve));
   const port=(socket.address() as {port:number}).port;await new Promise<void>(resolve=>socket.close(()=>resolve()));base=`http://127.0.0.1:${port}`;
   // Isolated in-memory test server; this fixture never contacts hosted services.
-  const source=`let status='submitted';process.on('message',message=>{status=message.status;process.send({status});});global.fetch=async(url,options)=>{
-    const command=JSON.parse(options.body).command;
+  const source=`let status='submitted';const preferences={};process.on('message',message=>{status=message.status;process.send({status});});global.fetch=async(url,options)=>{
+    const payload=JSON.parse(options.body);const command=payload.command;
+    if(['preferences','update_preferences'].includes(command)){
+      if(status!=='approved')return new Response(JSON.stringify({success:false,error:{message:'Approved deliverer required'}}),{status:403});
+      if(command==='update_preferences')preferences[payload.userId]={...preferences[payload.userId],...payload.input.delivery_preferences};
+      return new Response(JSON.stringify({success:true,data:{delivery_preferences:preferences[payload.userId]||{p2p:true,transport:'walking'}}}));
+    }
     const data=String(url).includes('/internal/mobile-maps')
       ? command==='route'?{distanceMeters:1000,durationSeconds:120,points:[{latitude:6,longitude:3},{latitude:6.1,longitude:3.1}]}:{saved:true}
       : {status,canDeliver:status==='approved'};
@@ -49,9 +54,16 @@ describe('legacy delivery API approval boundary',()=>{
     await authority('approved');
     const switched=await request('/users/me','PATCH',{activeRole:'deliverer'},applicant);
     expect(switched.status).toBe(200);expect(switched.body.user).toMatchObject({activeRole:'deliverer',canDeliver:true,verified:true,delivererVerificationStatus:'approved'});
+    const endpoint='/api/v1/users/me/preferences?scope=work';
+    expect((await request(endpoint,'GET')).status).toBe(401);
+    expect((await request(endpoint,'PATCH',{delivery_preferences:{p2p:false,delivery_area:'Yaba'}},applicant)).status).toBe(200);
+    expect((await request(endpoint,'GET',undefined,applicant)).body.data.delivery_preferences).toMatchObject({p2p:false,delivery_area:'Yaba'});
+    expect((await request(endpoint,'GET',undefined,sender)).body.data.delivery_preferences).not.toHaveProperty('delivery_area');
     await authority('suspended');
     const revoked=await request('/deliverer-access','GET',undefined,applicant);
     expect(revoked.body.user).toMatchObject({activeRole:'sender',canDeliver:false,delivererOnline:false});
     expect((await request(`/orders/${orderId}/accept`,'POST',{},applicant)).status).toBe(403);
+    expect((await request(endpoint,'PATCH',{delivery_preferences:{p2p:true}},applicant)).status).toBe(403);
+    expect((await request('/orders','GET',undefined,sender)).status).toBe(200);
   });
 });
