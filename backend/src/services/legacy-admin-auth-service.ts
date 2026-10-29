@@ -1,5 +1,5 @@
 import { createHmac, pbkdf2Sync, timingSafeEqual } from 'node:crypto';
-import { supabaseAdmin } from '../config/supabase.js';
+import { legacySupabaseAdmin } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { ApiError } from '../utils/api-error.js';
 
@@ -62,12 +62,27 @@ function accountFrom(user: LegacyUser, roles: string[], emailFallback = '') {
   const data = user.data;
   const email = typeof data.email === 'string' ? data.email.toLowerCase() : emailFallback;
   const name = typeof data.name === 'string' ? data.name : email;
+  const legacyBalance = Number(data.walletBalance ?? 0);
+  const walletBalanceMinor = Number.isFinite(legacyBalance) && Number.isSafeInteger(Math.round(legacyBalance * 100))
+    ? Math.round(legacyBalance * 100) : 0;
+  const activeRole = data.activeRole === 'deliverer' ? 'deliverer' : 'sender';
+  const delivererStatus = typeof data.delivererVerificationStatus === 'string'
+    ? data.delivererVerificationStatus : 'not_started';
   const now = Math.floor(Date.now() / 1000);
   const claims = (typ: 'access' | 'refresh', ttl: number): LegacyClaims => ({
     sub: user.uid, email, name, roles, typ, iat: now, exp: now + ttl, aud: 'movetraq-admin',
   });
   return {
-    user: { uid: user.uid, name, email, roles },
+    user: {
+      uid: user.uid, name, email, phone: typeof data.phone === 'string' ? data.phone : '', roles,
+      activeRole, memberTier: typeof data.memberTier === 'string' ? data.memberTier : 'Bronze',
+      canDeliver: Boolean(data.canDeliver), verified: Boolean(data.verified),
+      verificationStatus: data.verified ? 'approved' : 'not_started',
+      delivererVerificationStatus: delivererStatus, delivererOnline: Boolean(data.delivererOnline),
+      vehicleType: typeof data.vehicleType === 'string' ? data.vehicleType : null,
+      createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
+      wallet: { currency: 'NGN', balanceMinor: walletBalanceMinor },
+    },
     session: {
       accessToken: token(claims('access', env.LEGACY_ACCESS_TOKEN_TTL_SECONDS)),
       refreshToken: token(claims('refresh', 60 * 60 * 24 * 14)),
@@ -79,7 +94,7 @@ function accountFrom(user: LegacyUser, roles: string[], emailFallback = '') {
 
 export async function signInLegacyAdmin(emailInput: string, password: string) {
   const email = emailInput.trim().toLowerCase();
-  const { data: credential, error: credentialError } = await supabaseAdmin
+  const { data: credential, error: credentialError } = await legacySupabaseAdmin
     .from('credentials').select('user_id,password_hash').eq('email', email).maybeSingle();
   if (credentialError) {
     // Missing legacy tables indicate a project mismatch; don't misreport it as a bad password.
@@ -91,7 +106,7 @@ export async function signInLegacyAdmin(emailInput: string, password: string) {
     throw new ApiError(401, 'SIGNIN_FAILED', 'The email or password was not accepted.');
   }
 
-  const { data: row, error: userError } = await supabaseAdmin.from('users').select('uid,data')
+  const { data: row, error: userError } = await legacySupabaseAdmin.from('users').select('uid,data')
     .eq('uid', legacyCredential.user_id).maybeSingle();
   if (userError || !row || !row.data || typeof row.data !== 'object' || Array.isArray(row.data)) {
     throw new ApiError(503, 'LEGACY_ACCOUNT_UNAVAILABLE', 'Could not load the legacy account.');
@@ -110,7 +125,7 @@ export async function refreshLegacyAdminSession(refreshToken: string) {
   if (!claims || claims.typ !== 'refresh') {
     throw new ApiError(401, 'INVALID_SESSION', 'Please sign in again.');
   }
-  const { data: row, error } = await supabaseAdmin.from('users').select('uid,data').eq('uid', claims.sub).maybeSingle();
+  const { data: row, error } = await legacySupabaseAdmin.from('users').select('uid,data').eq('uid', claims.sub).maybeSingle();
   if (error || !row || !row.data || typeof row.data !== 'object' || Array.isArray(row.data)) {
     throw new ApiError(503, 'LEGACY_ACCOUNT_UNAVAILABLE', 'Could not load the legacy account.');
   }
@@ -121,4 +136,16 @@ export async function refreshLegacyAdminSession(refreshToken: string) {
     throw new ApiError(403, 'ADMIN_ROLE_REQUIRED', 'Staff access has changed.');
   }
   return accountFrom(user, roles);
+}
+
+export async function legacyAdminProfile(userId: string) {
+  const { data: row, error } = await legacySupabaseAdmin.from('users').select('uid,data').eq('uid', userId).maybeSingle();
+  if (error || !row || !row.data || typeof row.data !== 'object' || Array.isArray(row.data)) {
+    throw new ApiError(503, 'LEGACY_ACCOUNT_UNAVAILABLE', 'Could not load the legacy account.');
+  }
+  const user = row as LegacyUser;
+  if (accountDisabled(user.data)) throw new ApiError(403, 'ACCOUNT_DISABLED', 'This account is disabled.');
+  const roles = roleList(user.data);
+  if (!roles.length) throw new ApiError(403, 'ADMIN_ROLE_REQUIRED', 'This account does not have staff access.');
+  return accountFrom(user, roles).user;
 }

@@ -7,6 +7,7 @@ import { ok, created } from '../utils/responses.js';
 import { idSchema, paginationSchema } from '../validators/account.js';
 import { applicationSchema, documentSchema, reviewSchema } from '../validators/delivery.js';
 import { z } from 'zod';
+import { verifyLegacyAdminToken } from '../services/legacy-admin-auth-service.js';
 const queueSchema=paginationSchema.extend({status:z.enum(['pending','all']).default('pending')});
 
 export const start = asyncHandler(async (req, res) => { created(res, await deliveryRpc('start_deliverer_application', { p_user_id: req.user!.id, p_input: applicationSchema.parse(req.body) })); });
@@ -31,6 +32,10 @@ export const queue = asyncHandler(async (req, res) => {
 });
 export const notifications = asyncHandler(async(req,res)=>{
   const {limit,offset}=paginationSchema.parse(req.query);
+  if (verifyLegacyAdminToken(req.accessToken ?? '')?.typ === 'access') {
+    ok(res,{notifications:[],unreadCount:0,legacyInboxAvailable:false,limit,offset});
+    return;
+  }
   const {data,error,count}=await supabaseAdmin.from('notifications').select('id,type,title,body,data,created_at,read_at',{count:'exact'})
     .eq('user_id',req.user!.id).eq('type','deliverer_application').is('read_at',null)
     .order('created_at',{ascending:false}).order('id').range(offset,offset+limit-1);

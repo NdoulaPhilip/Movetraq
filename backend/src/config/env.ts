@@ -9,6 +9,8 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  LEGACY_SUPABASE_URL: z.string().url().optional(),
+  LEGACY_SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   PAYMENT_PROVIDER: z.enum(['paystack', 'flutterwave']).default('paystack'),
   PAYMENT_SECRET_KEY: z.string().optional(),
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),

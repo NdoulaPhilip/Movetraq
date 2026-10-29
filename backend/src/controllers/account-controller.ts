@@ -6,14 +6,20 @@ import { ApiError } from '../utils/api-error.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { created, ok } from '../utils/responses.js';
 import * as validators from '../validators/account.js';
-import { verifyLegacyAdminToken } from '../services/legacy-admin-auth-service.js';
+import { legacyAdminProfile, verifyLegacyAdminToken } from '../services/legacy-admin-auth-service.js';
 
 export const signup = asyncHandler(async (req, res) => { created(res, await auth.signUp(validators.signupSchema.parse(req.body))); });
 export const signin = asyncHandler(async (req, res) => { ok(res, await auth.signIn(validators.signinSchema.parse(req.body))); });
 export const refresh = asyncHandler(async (req, res) => { ok(res, await auth.refreshSession(validators.refreshSchema.parse(req.body).refreshToken)); });
 export const recover = asyncHandler(async (req, res) => { ok(res, await auth.requestRecovery(validators.recoverySchema.parse(req.body).email)); });
 export const verify = asyncHandler(async (req, res) => { ok(res, await auth.verifyOtp(validators.otpSchema.parse(req.body))); });
-export const me = asyncHandler(async (req, res) => { ok(res, { user: await account.accountProfile(req.user!) }); });
+export const me = asyncHandler(async (req, res) => {
+  const legacy = verifyLegacyAdminToken(req.accessToken ?? '');
+  const user = legacy?.typ === 'access'
+    ? await legacyAdminProfile(req.user!.id)
+    : await account.accountProfile(req.user!);
+  ok(res, { user });
+});
 export const updateProfile = asyncHandler(async (req, res) => { ok(res, { user: await account.updateAccountProfile(req.user!, validators.profileSchema.parse(req.body)) }); });
 export const logout = asyncHandler(async (req, res) => {
   if (verifyLegacyAdminToken(req.accessToken ?? '')?.typ === 'access') {
