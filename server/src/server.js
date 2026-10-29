@@ -575,9 +575,12 @@ async function handleRequest(req, res) {
         json(res, 401, { error: 'Monitoring access denied.' }); return;
       }
       const staff = req.headers['x-monitoring-staff'];
-      if (typeof staff !== 'string' || !/^[0-9a-f-]{36}$/i.test(staff)) { json(res, 403, { error: 'Staff identity required.' }); return; }
+      // Supabase staff IDs are UUIDs; legacy staff IDs may be strings such as
+      // user_123. Store either in actor_id (text) so legacy staff can access
+      // monitoring without inventing or mapping an identity.
+      if (typeof staff !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(staff)) { json(res, 403, { error: 'Staff identity required.' }); return; }
       if (!usePostgres) { json(res, 503, { error: 'Persistent monitoring unavailable.' }); return; }
-      await pgPool.query(`insert into mobile_request_attempts(id,staff_id,method,route,category,status,outcome,finished_at)
+      await pgPool.query(`insert into mobile_request_attempts(id,actor_id,method,route,category,status,outcome,finished_at)
         values($1,$2,'GET','/internal/monitoring','security',200,'successful',now())`,[crypto.randomUUID(),staff]);
       json(res, 200, await monitoring.monitoringData(pgPool, url.searchParams)); return;
     }
