@@ -6,6 +6,7 @@ import { ApiError } from '../utils/api-error.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { created, ok } from '../utils/responses.js';
 import * as validators from '../validators/account.js';
+import { verifyLegacyAdminToken } from '../services/legacy-admin-auth-service.js';
 
 export const signup = asyncHandler(async (req, res) => { created(res, await auth.signUp(validators.signupSchema.parse(req.body))); });
 export const signin = asyncHandler(async (req, res) => { ok(res, await auth.signIn(validators.signinSchema.parse(req.body))); });
@@ -15,6 +16,10 @@ export const verify = asyncHandler(async (req, res) => { ok(res, await auth.veri
 export const me = asyncHandler(async (req, res) => { ok(res, { user: await account.accountProfile(req.user!) }); });
 export const updateProfile = asyncHandler(async (req, res) => { ok(res, { user: await account.updateAccountProfile(req.user!, validators.profileSchema.parse(req.body)) }); });
 export const logout = asyncHandler(async (req, res) => {
+  if (verifyLegacyAdminToken(req.accessToken ?? '')?.typ === 'access') {
+    ok(res, { signedOut: true });
+    return;
+  }
   const { error } = await supabaseAdmin.auth.admin.signOut(req.accessToken!, 'local');
   if (error) throw new ApiError(503, 'LOGOUT_FAILED', 'Could not revoke this session.');
   ok(res, { signedOut: true });

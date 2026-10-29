@@ -7,6 +7,7 @@ import type { signupSchema, signinSchema, otpSchema } from '../validators/accoun
 import type { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase.js';
 import { databaseError } from '../repositories/account-repository.js';
+import { refreshLegacyAdminSession, signInLegacyAdmin, verifyLegacyAdminToken } from './legacy-admin-auth-service.js';
 
 async function authenticatedResult(session: Session, user: User) {
   const profile = await accountProfile({ id: user.id, email: user.email, roles: [] });
@@ -26,12 +27,22 @@ export async function signUp(input: z.infer<typeof signupSchema>) {
   return { requiresEmailConfirmation: false, ...await authenticatedResult(data.session, data.user) };
 }
 export async function signIn(input: z.infer<typeof signinSchema>) {
+  if (input.emailOrPhone.includes('@') && env.LEGACY_JWT_SECRET) {
+    const legacy = await signInLegacyAdmin(input.emailOrPhone, input.password);
+    if (legacy) return legacy;
+  }
   const credentials = input.emailOrPhone.includes('@')
     ? { email: input.emailOrPhone, password: input.password }
     : { phone: input.emailOrPhone, password: input.password };
   const { data, error } = await createAuthClient().auth.signInWithPassword(credentials);
   if (error || !data.session || !data.user) {
-    throw new ApiError(error?.status && error.status >= 500 ? 503 : 401, 'SIGNIN_FAILED', 'Could not sign in. Check your credentials and confirm your account.');
+    if (error?.code === 'email_not_confirmed') {
+      throw new ApiError(401, 'EMAIL_NOT_CONFIRMED', 'Confirm this email address before signing in.');
+    }
+    if (error?.code === 'invalid_credentials' || error?.status === 400 || error?.status === 401) {
+      throw new ApiError(401, 'SIGNIN_FAILED', 'The email or password was not accepted. Check your credentials and confirm your account.');
+    }
+    throw new ApiError(503, 'AUTH_UNAVAILABLE', 'Sign-in is temporarily unavailable. Please try again later.');
   }
   const result = await authenticatedResult(data.session, data.user);
   const { error: activityError } = await supabaseAdmin.rpc('record_account_login', { p_user_id: data.user.id });
@@ -39,6 +50,8 @@ export async function signIn(input: z.infer<typeof signinSchema>) {
   return result;
 }
 export async function refreshSession(refreshToken: string) {
+  const legacyClaims = verifyLegacyAdminToken(refreshToken);
+  if (legacyClaims?.typ === 'refresh') return refreshLegacyAdminSession(refreshToken);
   const { data, error } = await createAuthClient().auth.refreshSession({ refresh_token: refreshToken });
   if (error || !data.session || !data.user) {
     throw new ApiError(error?.status && error.status >= 500 ? 503 : 401, 'INVALID_SESSION', 'Please sign in again.');

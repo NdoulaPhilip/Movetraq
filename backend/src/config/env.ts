@@ -23,6 +23,8 @@ const envSchema = z.object({
   NOMINATIM_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
   MAPS_USER_AGENT: z.string().min(8).default('MoveTraq/1.0 (https://github.com/NdoulaPhilip/Movetraq)'),
   JWT_AUDIENCE: z.string().default('authenticated'),
+  LEGACY_JWT_SECRET: z.string().min(32).optional(),
+  LEGACY_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(300).max(3600).default(900),
   LOG_LEVEL: z.string().default('info'),
   AUTH_REDIRECT_URL: z.string().url().optional(),
   ADMIN_INVITE_REDIRECT_URL: z.string().url().optional(),

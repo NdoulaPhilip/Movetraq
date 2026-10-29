@@ -30,6 +30,12 @@ Create a Node web service from repository root: build `cd backend && npm ci --in
 
 Admin static build: `cd admin && npm ci --include=dev && npm run build`, publish `admin/dist`, with SPA rewrites to `/index.html`. Build-time VITE variables must contain public values only. Limit API CORS to the real admin origin.
 
+### Legacy admin sign-in
+
+The production API can authenticate staff against the legacy `public.credentials` and `public.users` tables without copying or resetting those accounts. Configure the API service in Render with `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` from the same Supabase project that contains those tables. Set `LEGACY_JWT_SECRET` to a server-only random value of at least 32 characters. Do not set it on the static admin service or commit it to the repository. Keep the admin build's `VITE_API_URL` pointed at the production API.
+
+After updating the API code and its environment, deploy the API service and confirm it reaches `live` before rebuilding the static admin. A legacy staff session authenticates the console, but admin data routes still require their underlying tables; verify those routes against the legacy schema before treating the console as fully operational. Do not apply migrations intended for the normalized schema to the legacy project as part of this login setup.
+
 ## Providers and mobile
 
 Configure Paystack test mode first, callback URL, signed webhook URL, bank transfers, and payouts. [Paystack webhook documentation](https://paystack.com/docs/payments/webhooks/) describes signature validation. Reconcile money before enabling live keys.

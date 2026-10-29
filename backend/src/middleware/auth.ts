@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { ApiError } from '../utils/api-error.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { verifyLegacyAdminToken } from '../services/legacy-admin-auth-service.js';
 
 export interface AuthUser {
   id: string;
@@ -22,6 +23,14 @@ export const requireAuth = asyncHandler(async (req: Request, _res: Response, nex
   const token = req.header('authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1];
   if (!token) {
     next(new ApiError(401, 'AUTH_REQUIRED', 'Please sign in first.'));
+    return;
+  }
+
+  const legacyClaims = verifyLegacyAdminToken(token);
+  if (legacyClaims?.typ === 'access') {
+    req.user = { id: legacyClaims.sub, email: legacyClaims.email, roles: legacyClaims.roles };
+    req.accessToken = token;
+    next();
     return;
   }
 
