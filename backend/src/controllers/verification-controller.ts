@@ -8,6 +8,7 @@ import { idSchema, paginationSchema } from '../validators/account.js';
 import { applicationSchema, documentSchema, reviewSchema } from '../validators/delivery.js';
 import { z } from 'zod';
 import { verifyLegacyAdminToken } from '../services/legacy-admin-auth-service.js';
+import { logger } from '../utils/logger.js';
 const queueSchema=paginationSchema.extend({status:z.enum(['pending','all']).default('pending')});
 
 export const start = asyncHandler(async (req, res) => { created(res, await deliveryRpc('start_deliverer_application', { p_user_id: req.user!.id, p_input: applicationSchema.parse(req.body) })); });
@@ -28,6 +29,7 @@ export const queue = asyncHandler(async (req, res) => {
   let query = supabaseAdmin.from('verification_applications').select('*,documents:verification_documents(id,document_type,mime_type,size_bytes,upload_verified_at)');
   if(status==='pending')query=query.in('status',['pending_approval','submitted','under_review']);
   const { data, error } = await query.order('submitted_at',{ascending:false,nullsFirst:false}).order('id').range(offset, offset + limit - 1);
+  if (error) logger.warn({ databaseErrorCode: error.code ?? 'UNKNOWN' }, 'Verification queue query failed');
   databaseError(error); ok(res, { applications: data ?? [], limit, offset });
 });
 export const notifications = asyncHandler(async(req,res)=>{
