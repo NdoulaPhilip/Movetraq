@@ -29,7 +29,8 @@ export const queue = asyncHandler(async (req, res) => {
   let query = supabaseAdmin.from('verification_applications').select('*,documents:verification_documents(id,document_type,mime_type,size_bytes,upload_verified_at)');
   if(status==='pending')query=query.in('status',['pending_approval','submitted','under_review']);
   const { data, error } = await query.order('submitted_at',{ascending:false,nullsFirst:false}).order('id').range(offset, offset + limit - 1);
-  if (error) logger.warn({ databaseErrorCode: error.code ?? 'UNKNOWN' }, 'Verification queue query failed');
+  if (error) logger.warn({ databaseErrorCode: error.code || 'UNKNOWN', databaseErrorName: error.name,
+    databaseErrorMessage: error.message.slice(0, 240) }, 'Verification queue query failed');
   databaseError(error); ok(res, { applications: data ?? [], limit, offset });
 });
 export const notifications = asyncHandler(async(req,res)=>{
